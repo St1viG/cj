@@ -129,6 +129,40 @@ func TestNVIDIAGPUs(t *testing.T) {
 	}
 }
 
+// TestFEDDMeasured runs the parsers over the values read from FED-D's own
+// /sys, /proc and /etc on 2026-11-08 (Fedora 43, kernel 6.19.9, Ryzen 5 3600,
+// GTX 1060 6GB on vfio-pci in IOMMU group 14), which spike S2a describes. It
+// is the data half of P2.4's check on FED-D: the agent itself has not run there.
+func TestFEDDMeasured(t *testing.T) {
+	f := &fixture{t: t, root: t.TempDir()}
+	f.file("sys/devices/system/cpu/online", "0-11\n")
+	f.file("proc/meminfo", "MemTotal:       16308600 kB\n")
+	f.file("etc/os-release", "NAME=\"Fedora Linux\"\nID=fedora\nVERSION_ID=43\nPRETTY_NAME=\"Fedora Linux 43 (KDE Plasma Desktop Edition)\"\n")
+	f.file("proc/sys/kernel/osrelease", "6.19.9-200.fc43.x86_64\n")
+	f.pci("0000:26:00.0", "0x10de", "0x1c03", "0x030000", "vfio-pci", 14, "-1")
+	f.pci("0000:26:00.1", "0x10de", "0x10f1", "0x040300", "vfio-pci", 14, "-1")
+
+	inv, err := inventory.LinuxHost(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.Total.VCPU != 12 || inv.Total.RAMMiB != 15926 || inv.OS != "Fedora Linux 43 (KDE Plasma Desktop Edition)" || inv.Kernel != "6.19.9-200.fc43.x86_64" {
+		t.Fatalf("host = %+v", inv)
+	}
+	gpus, err := inventory.NVIDIAGPUs(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gpus) != 1 {
+		t.Fatalf("got %d GPUs, want the one GTX 1060: %+v", len(gpus), gpus)
+	}
+	g := gpus[0]
+	if g.ID != "0000:26:00.0" || g.Health != driver.HealthOK || g.Model != "GeForce GTX 1060 6GB" || g.MemMiB != 6144 ||
+		g.IOMMUGroup != 14 || g.HostDriver != "vfio-pci" || !slices.Equal(g.Companions, []string{"0000:26:00.1"}) {
+		t.Errorf("GTX 1060 = %+v", g)
+	}
+}
+
 func TestNoPCIBus(t *testing.T) {
 	gpus, err := inventory.NVIDIAGPUs(t.TempDir())
 	if err != nil || len(gpus) != 0 {
