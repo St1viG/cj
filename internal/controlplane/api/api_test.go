@@ -14,6 +14,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/St1viG/cj/gen/go/kondukter/api/v1"
 	"github.com/St1viG/cj/gen/go/kondukter/api/v1/apiv1connect"
@@ -756,5 +757,86 @@ func TestErrorsHideInternals(t *testing.T) {
 	var ce *connect.Error
 	if !errors.As(err, &ce) || strings.Contains(ce.Message(), "pool") || strings.Contains(ce.Message(), "closed") {
 		t.Fatalf("error = %v; want a generic message", err)
+	}
+}
+
+func TestUsage(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	node, _ := storetest.AddNode(t, e.s, e.f.Site.ID, storetest.NodeOpts{Arch: "arm64"})
+	res, err := e.instances().CreateInstance(ctx, authed(e.keyA, e.cpuRequest()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.MustParse(res.Msg.GetInstance().GetId())
+	if u := res.Msg.GetInstance().GetUsage(); u.GetRunningMinutes() != 0 || u.GetEstimatedCost().GetCurrency() != "EUR" {
+		t.Fatalf("usage of a new instance = %v", u)
+	}
+	if _, err := scheduler.New(e.s, quiet, scheduler.Hooks{}).Place(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.WithTx(ctx, func(tx store.Tx) error {
+		cur, err := tx.GetInstanceForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, ev := range []controller.Event{controller.EvAgentApplied, controller.EvAgentRunning} {
+			if cur, _, err = controller.Transition(ctx, tx, cur, ev, ""); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// It has been RUNNING for three minutes.
+	started := time.Now().Add(-3 * time.Minute)
+	if _, err := e.s.Pool.Exec(ctx, `UPDATE instance_events SET at = $2 WHERE instance_id = $1 AND to_phase = 'running'`, id, started); err != nil {
+		t.Fatal(err)
+	}
+	for m := range 2 {
+		p := started.Truncate(time.Minute).Add(time.Duration(m+1) * time.Minute)
+		if _, err := e.s.InsertUsageRecord(ctx, db.InsertUsageRecordParams{
+			InstanceID: id, PeriodStart: p, PeriodEnd: p.Add(time.Minute), RunningSeconds: 60, NodeID: node.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := e.instances().GetInstance(ctx, authed(e.keyA, &apiv1.GetInstanceRequest{Id: id.String()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := got.Msg.GetInstance().GetUsage()
+	if m := u.GetRunningMinutes(); m < 3 || m > 4 || u.GetEstimatedCost().GetAmountMinor() != (m*6+59)/60 || u.GetRunningSeconds() < 180 {
+		t.Fatalf("usage after 3 minutes = %v", u)
+	}
+
+	list, err := apiv1connect.NewUsageServiceClient(http.DefaultClient, e.url).ListUsage(ctx, authed(e.keyA, &apiv1.ListUsageRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Msg.GetInstances()) != 1 {
+		t.Fatalf("usage rows = %v", list.Msg)
+	}
+	row := list.Msg.GetInstances()[0]
+	if row.GetInstanceId() != id.String() || row.GetShapeName() != "cpu-2x2" || row.GetAgentReportedSeconds() != 120 ||
+		row.GetUsage().GetRunningMinutes() != u.GetRunningMinutes() || list.Msg.GetTotalRunningMinutes() != u.GetRunningMinutes() ||
+		len(list.Msg.GetTotalEstimatedCost()) != 1 || list.Msg.GetTotalEstimatedCost()[0].GetCurrency() != "EUR" {
+		t.Fatalf("usage = %v", list.Msg)
+	}
+	// A window before it started is empty; another org sees nothing.
+	early, err := apiv1connect.NewUsageServiceClient(http.DefaultClient, e.url).ListUsage(ctx, authed(e.keyA, &apiv1.ListUsageRequest{
+		PeriodEnd: timestamppb.New(started.Add(-time.Minute)),
+	}))
+	if err != nil || len(early.Msg.GetInstances()) != 0 {
+		t.Fatalf("usage before start = %v, %v", early, err)
+	}
+	if other, err := apiv1connect.NewUsageServiceClient(http.DefaultClient, e.url).ListUsage(ctx, authed(e.keyB, &apiv1.ListUsageRequest{})); err != nil ||
+		len(other.Msg.GetInstances()) != 0 {
+		t.Fatalf("org B usage = %v, %v", other, err)
+	}
+	if _, err := apiv1connect.NewUsageServiceClient(http.DefaultClient, e.url).ListUsage(ctx, authed(e.keyP, &apiv1.ListUsageRequest{})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("partner ListUsage = %v", err)
 	}
 }

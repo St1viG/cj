@@ -78,17 +78,17 @@ func (h adminHandler) ListInstances(ctx context.Context, req *connect.Request[ap
 		return nil, h.internal(ctx, err)
 	}
 	out := &apiv1.AdminServiceListInstancesResponse{}
+	if len(rows) > size {
+		last := rows[size-1].Instance
+		out.NextPageToken = encodePageToken(last.CreatedAt, last.ID)
+		rows = rows[:size]
+	}
+	conv := make([]instanceRow, len(rows))
 	for i, r := range rows {
-		if i == size {
-			last := rows[size-1].Instance
-			out.NextPageToken = encodePageToken(last.CreatedAt, last.ID)
-			break
-		}
-		inst, err := instanceProto(instanceRow(r))
-		if err != nil {
-			return nil, h.internal(ctx, err)
-		}
-		out.Instances = append(out.Instances, inst)
+		conv[i] = instanceRow(r)
+	}
+	if out.Instances, err = instanceProtos(ctx, h.Store.Queries, conv...); err != nil {
+		return nil, h.internal(ctx, err)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -172,9 +172,11 @@ func (h adminHandler) ForceTerminateInstance(ctx context.Context, req *connect.R
 			if err != nil {
 				return nil, err
 			}
-			if resp.Instance, err = instanceProto(instanceRow(row)); err != nil {
+			insts, err := instanceProtos(ctx, tx.Queries, instanceRow(row))
+			if err != nil {
 				return nil, err
 			}
+			resp.Instance = insts[0]
 			return resp, nil
 		})
 	})

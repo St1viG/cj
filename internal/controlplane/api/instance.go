@@ -51,10 +51,11 @@ func (h instanceHandler) CreateInstance(ctx context.Context, req *connect.Reques
 			if err != nil {
 				return nil, err
 			}
-			if resp.Instance, err = instanceProto(instanceRow(row)); err != nil {
+			insts, err := instanceProtos(ctx, tx.Queries, instanceRow(row))
+			if err != nil {
 				return nil, err
 			}
-			created = &id
+			resp.Instance, created = insts[0], &id
 			return resp, nil
 		})
 		return err
@@ -272,11 +273,11 @@ func (h instanceHandler) get(ctx context.Context, q *db.Queries, p Principal, id
 		}
 		return nil, h.internal(ctx, err)
 	}
-	inst, err := instanceProto(instanceRow(row))
+	insts, err := instanceProtos(ctx, q, instanceRow(row))
 	if err != nil {
 		return nil, h.internal(ctx, err)
 	}
-	return inst, nil
+	return insts[0], nil
 }
 
 func (h instanceHandler) ListInstances(ctx context.Context, req *connect.Request[apiv1.ListInstancesRequest]) (*connect.Response[apiv1.ListInstancesResponse], error) {
@@ -295,17 +296,17 @@ func (h instanceHandler) ListInstances(ctx context.Context, req *connect.Request
 		return nil, h.internal(ctx, err)
 	}
 	out := &apiv1.ListInstancesResponse{}
+	if len(rows) > size {
+		last := rows[size-1].Instance
+		out.NextPageToken = encodePageToken(last.CreatedAt, last.ID)
+		rows = rows[:size]
+	}
+	conv := make([]instanceRow, len(rows))
 	for i, r := range rows {
-		if i == size {
-			last := rows[size-1].Instance
-			out.NextPageToken = encodePageToken(last.CreatedAt, last.ID)
-			break
-		}
-		inst, err := instanceProto(instanceRow(r))
-		if err != nil {
-			return nil, h.internal(ctx, err)
-		}
-		out.Instances = append(out.Instances, inst)
+		conv[i] = instanceRow(r)
+	}
+	if out.Instances, err = instanceProtos(ctx, h.Store.Queries, conv...); err != nil {
+		return nil, h.internal(ctx, err)
 	}
 	return connect.NewResponse(out), nil
 }

@@ -73,6 +73,7 @@ func (a *API) Mount(mux *http.ServeMux) {
 	mux.Handle(apiv1connect.NewAuthServiceHandler(authHandler{a}, opts))
 	mux.Handle(apiv1connect.NewPartnerServiceHandler(partnerHandler{a}, opts))
 	mux.Handle(apiv1connect.NewAdminServiceHandler(adminHandler{a}, opts))
+	mux.Handle(apiv1connect.NewUsageServiceHandler(usageHandler{a}, opts))
 }
 
 // Janitor purges expired idempotency keys every hour until ctx ends.
