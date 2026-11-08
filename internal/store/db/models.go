@@ -261,6 +261,7 @@ type Instance struct {
 	ScheduledAt         *time.Time
 	RunningAt           *time.Time
 	TerminatedAt        *time.Time
+	AgentStatusAt       *time.Time
 }
 
 type InstanceEvent struct {

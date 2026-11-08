@@ -64,3 +64,35 @@ RETURNING *;
 INSERT INTO nodes (id, site_id, hostname, agent_version, cert_fingerprint, cert_expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
+
+-- name: NodeHello :one
+-- A Hello makes an enrolling or unreachable node ready; other statuses
+-- (draining, maintenance, quarantined) are operator decisions and stay.
+UPDATE nodes SET
+  agent_version = sqlc.arg(agent_version), driver = sqlc.arg(driver),
+  observed_generation = sqlc.arg(last_applied)::bigint,
+  last_seen_at = now(), updated_at = now(),
+  status = CASE WHEN status IN ('enrolling', 'unreachable') THEN 'ready'::node_status ELSE status END,
+  status_reason = CASE WHEN status IN ('enrolling', 'unreachable') THEN '' ELSE status_reason END,
+  -- An agent ahead of us (re-enrolled with an old local store) would ignore
+  -- every snapshot as out of date; jump past its generation.
+  desired_generation = CASE WHEN sqlc.arg(last_applied)::bigint > desired_generation
+                            THEN sqlc.arg(last_applied)::bigint + 1 ELSE desired_generation END
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: NodeHeartbeat :exec
+UPDATE nodes SET last_seen_at = now(), observed_generation = $2 WHERE id = $1;
+
+-- name: ListAcceleratorLocalIDsInUse :many
+-- Accelerators of a node held by an active allocation.
+SELECT a.local_id FROM accelerators a
+JOIN allocations al ON al.accelerator_id = a.id AND al.released_at IS NULL
+WHERE a.node_id = $1;
+
+-- name: MarkAcceleratorMissing :exec
+UPDATE accelerators SET health = 'missing', health_reason = 'no longer reported by the agent', updated_at = now()
+WHERE node_id = $1 AND local_id = $2;
+
+-- name: DeleteAccelerator :exec
+DELETE FROM accelerators WHERE node_id = $1 AND local_id = $2;

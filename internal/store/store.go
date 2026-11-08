@@ -59,6 +59,14 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx Tx) error) error {
 	})
 }
 
+// WithTxOptions is WithTx with explicit options, e.g. a repeatable-read,
+// read-only transaction for a consistent multi-query read.
+func (s *Store) WithTxOptions(ctx context.Context, opts pgx.TxOptions, fn func(tx Tx) error) error {
+	return pgx.BeginTxFunc(ctx, s.Pool, opts, func(tx pgx.Tx) error {
+		return fn(Tx{Queries: s.Queries.WithTx(tx), Tx: tx})
+	})
+}
+
 // ErrNotFound is returned by lookups that matched no row.
 var ErrNotFound = errors.New("store: not found")
 

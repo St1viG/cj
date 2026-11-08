@@ -17,9 +17,10 @@ COMPOSE  ?= docker compose -f deploy/compose/compose.yaml --env-file $(ENV_FILE)
 # Postgres URL for migrations and tests: the environment wins, else the env file.
 DATABASE_URL ?= $(or $(KONDUKTER_DATABASE_URL),$(shell sed -n 's/^KONDUKTER_DATABASE_URL=//p' $(ENV_FILE)))
 
-# sqlc is pinned and run through `go run` so generated code is identical everywhere.
+# sqlc is pinned so generated code is identical everywhere: an installed sqlc
+# of exactly that version is used, otherwise the pinned one through `go run`.
 SQLC_VERSION ?= v1.31.1
-SQLC         ?= $(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+SQLC         ?= $(if $(filter $(SQLC_VERSION),$(shell sqlc version 2>/dev/null)),sqlc,$(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION))
 
 # Git ref the proto contract must stay compatible with (buf breaking, FILE).
 # CI overrides it, e.g. BUF_AGAINST_REF=origin/main.

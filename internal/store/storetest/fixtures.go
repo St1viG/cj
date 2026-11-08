@@ -2,7 +2,6 @@ package storetest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -148,16 +147,65 @@ func AddNode(t testing.TB, s *store.Store, siteID uuid.UUID, o NodeOpts) (db.Nod
 	return n, accels
 }
 
-// AddInstance inserts a PENDING instance for the fixture's org.
+// AddInstance inserts a PENDING instance for the fixture's org with a spec
+// built from the offer's shape and the image.
 func AddInstance(t testing.TB, s *store.Store, f Fixture, offer db.Offer, image db.Image) db.Instance {
 	t.Helper()
-	spec, err := json.Marshal(map[string]any{"image_id": image.ID})
+	ctx := context.Background()
+	o, err := s.GetOffer(ctx, offer.ID)
 	must(t, err)
-	inst, err := s.CreateInstance(context.Background(), db.CreateInstanceParams{
-		OrgID: f.Org.ID, OfferID: offer.ID, ImageID: image.ID, Spec: spec, CreatedBy: &f.User.ID,
+	spec := store.InstanceSpec{
+		VCPU: int(o.Shape.Vcpu), RAMMiB: o.Shape.RamMib, DiskGiB: o.Shape.DiskGib,
+		Image: store.ImageRef{
+			Name: image.Name, Version: image.Version, Arch: image.Arch, Digest: image.Digest,
+			URL: image.Url, SizeBytes: image.SizeBytes, Format: image.Format,
+		},
+		SSHPublicKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForStoretest test@kondukter"},
+		Ports:         []store.PortSpec{{GuestPort: 8080, Protocol: "tcp"}},
+	}
+	inst, err := s.CreateInstance(ctx, db.CreateInstanceParams{
+		OrgID: f.Org.ID, OfferID: offer.ID, ImageID: image.ID, Spec: store.MustJSON(spec), CreatedBy: &f.User.ID,
 	})
 	must(t, err)
 	return inst
+}
+
+// Place does what the scheduler's commit does: allocations (resources plus
+// the given accelerators), node_id, SCHEDULED with an event, and a node
+// generation bump. It returns the placed instance.
+func Place(t testing.TB, s *store.Store, inst db.Instance, node db.Node, accels ...db.Accelerator) db.Instance {
+	t.Helper()
+	ctx := context.Background()
+	spec, err := store.ParseSpec(inst.Spec)
+	must(t, err)
+	var placed db.Instance
+	must(t, s.WithTx(ctx, func(tx store.Tx) error {
+		if _, err := tx.GetNodeForUpdate(ctx, node.ID); err != nil {
+			return err
+		}
+		if _, err := tx.CreateAllocation(ctx, db.CreateAllocationParams{
+			InstanceID: inst.ID, NodeID: node.ID, Vcpu: int32(spec.VCPU), RamMib: spec.RAMMiB, DiskGib: spec.DiskGiB, //nolint:gosec // test sizes
+		}); err != nil {
+			return err
+		}
+		for _, a := range accels {
+			if _, err := tx.CreateAllocation(ctx, db.CreateAllocationParams{InstanceID: inst.ID, NodeID: node.ID, AcceleratorID: &a.ID}); err != nil {
+				return err
+			}
+		}
+		gen, err := tx.BumpNodeDesiredGeneration(ctx, node.ID)
+		if err != nil {
+			return err
+		}
+		if placed, err = tx.PlaceInstance(ctx, db.PlaceInstanceParams{ID: inst.ID, NodeID: &node.ID, PlacementGeneration: gen}); err != nil {
+			return err
+		}
+		pending := db.InstancePhasePending
+		return tx.InsertInstanceEvent(ctx, db.InsertInstanceEventParams{
+			InstanceID: inst.ID, FromPhase: &pending, ToPhase: db.InstancePhaseScheduled, Reason: "placed",
+		})
+	}))
+	return placed
 }
 
 func must(t testing.TB, err error) {
