@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 22 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
+**Done: 23 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -29,7 +29,7 @@
 - [x] P2.1 — Agent skeleton, config, local store, driver interface
 - [x] P2.2 — Stub gateway and stream client
 - [x] P2.3 — Mock driver and reconcile loop
-- [ ] P2.4 — Inventory · *partly done: the GPU check on FED-D waits for that host*
+- [x] P2.4 — Inventory
 - [x] P2.5 — libvirt driver
 - [ ] P2.6 — Lima driver · *partly done: built and tested against real VMs on an 8 GB Mac; SSH from MAC-P over the tailnet waits for a second Mac*
 - [x] P2.7 — Access module (port-map)
@@ -340,14 +340,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** "Fresh" means the snapshot was received on the live stream (`stream.Connected()`). Every pass Ensures, but Deletes happen and the applied generation is recorded only on a fresh pass that attempted every instance; a stored snapshot from before a restart keeps everything running. `Offer` ignores snapshots older than the stored or applied generation and treats an applied duplicate as a no-op. A re-sent snapshot that is not yet applied still triggers a pass. Statuses are reported only when they change (phase, reason, generation, IPs, ports). An instance that leaves the snapshot without ever reaching the host, because its create failed, is still reported `PHASE_DELETED`, so the control plane is not left waiting. The mock driver persists `<data_dir>/mock/instances.json` (temp file + rename). An injected failure creates nothing, so the next pass retries. It refuses an unknown or already-attached accelerator and enforces `max_instances`. It implements `driver.EventSource` and fires when provisioning finishes, so RUNNING is reported at once rather than on the next 30 s tick. `reconcile.Config.Prepare` is the hook the access module (P2.7) uses to fill in port mappings. Passes are serial, so one slow Ensure delays the others; fine at the demo's instance counts.
 
-#### ◐ P2.4 — Inventory
+#### ☑ P2.4 — Inventory
 - **Goal:** Accurate host resources and accelerators from both platforms.
 - **Deliverables:** `internal/agent/inventory`: Linux — online CPUs, `/proc/meminfo`, statfs of the data dir, arch, OS release; accelerators from `/sys/bus/pci/devices/*` with vendor `0x10de` and class `0x03xx`: PCI address, device id → model via a small table in `nvidia_ids.go` (demo GPUs plus common datacenter parts), NUMA node, IOMMU group, bound driver; only devices bound to `vfio-pci` report `health: ok`, others `health: unavailable` with the reason. macOS — `sysctl hw.ncpu hw.memsize`, disk free, arch `arm64`, no accelerators. Reserved CPU/RAM from config subtracted into `allocatable`. Reported at Hello, every 5 minutes, and whenever a diff is detected.
 - **Acceptance criteria:** Unit tests over fixture sysfs trees (GTX 1060 bound to vfio-pci → ok; RTX bound to nvidia → unavailable). On FED-D the reported accelerator matches S2a. On MAC-A: 8 vCPU, ~8 GiB total, arm64, no accelerators.
 - **Depends on:** P2.1
 - **Decisions required:** ADR-0007, ADR-0012
 - **Size:** S
-- **As built (2026-11-08):** The Linux parsers (`LinuxHost`, `NVIDIAGPUs`) take a root path, so fixture tests run on any OS; `statfs` and `sysctl` sit in build-tagged files. Disk is the size of the data dir's filesystem (use `reserved.disk_gib` for space other data needs). A GPU is `ok` only when it is bound to `vfio-pci`, has an IOMMU group, and every other endpoint in that group (e.g. the HDMI audio function, reported as `companion_pci_addresses`) is bound to `vfio-pci` too; PCI bridges are ignored. Otherwise it is `unavailable` with the reason. `nvidia_ids.go` lists only device ids known for certain (the Pascal family, RTX 3090/4090, V100/T4/A100/H100/L4/L40/L40S); others report as `NVIDIA 10de:<id>`, and FED-L's RTX is added after S2b. The agent sends Inventory at every Hello, after any 30 s check that finds a difference, and at least every 5 minutes. `kondukter-agent inventory` prints the discovered Inventory as JSON (P4.1's `--check` can reuse it). Verified on an 8 GB Apple Silicon Mac: 8 vCPU, 8192 MiB, arm64, no accelerators. **Open:** the FED-D check (reported GPU matches S2a) waits for the Fedora host.
+- **As built (2026-11-08):** The Linux parsers (`LinuxHost`, `NVIDIAGPUs`) take a root path, so fixture tests run on any OS; `statfs` and `sysctl` sit in build-tagged files. Disk is the size of the data dir's filesystem (use `reserved.disk_gib` for space other data needs). A GPU is `ok` only when it is bound to `vfio-pci`, has an IOMMU group, and every other endpoint in that group (e.g. the HDMI audio function, reported as `companion_pci_addresses`) is bound to `vfio-pci` too; PCI bridges are ignored. Otherwise it is `unavailable` with the reason. `nvidia_ids.go` lists only device ids known for certain (the Pascal family, RTX 3090/4090, V100/T4/A100/H100/L4/L40/L40S); others report as `NVIDIA 10de:<id>`, and FED-L's RTX is added after S2b. The agent sends Inventory at every Hello, after any 30 s check that finds a difference, and at least every 5 minutes. `kondukter-agent inventory` prints the discovered Inventory as JSON (P4.1's `--check` can reuse it). Verified on an 8 GB Apple Silicon Mac: 8 vCPU, 8192 MiB, arm64, no accelerators. **FED-D (2026-11-08):** `kondukter-agent inventory` reports 12 vCPU, 15926 MiB, 230 GiB, amd64, Fedora 43, and one accelerator: `0000:26:00.0` GeForce GTX 1060 6GB (`10de:1c03`, 6144 MiB), IOMMU group 14, bound to `vfio-pci`, companion `0000:26:00.1`, health ok. That matches S2a.
 
 #### ☑ P2.5 — libvirt driver
 - **Goal:** Real VMs on Fedora through pure Go, idempotent, with optional GPU passthrough.
