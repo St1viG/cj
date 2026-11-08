@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 13 partly done · 8 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 14 partly done · 7 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -21,7 +21,7 @@
 - [ ] P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
 - [ ] P1.3 — S2b: VFIO passthrough of the laptop RTX (FED-L)
 - [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac · *partly done: spike run and findings written; SSH from another tailnet machine waits for a second Mac*
-- [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
+- [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale · *partly done: reachability from FED-D measured; the 30-minute stream and the restart tests need an agent run on FED-D*
 - [ ] P1.6 — S5: GPU guest image build
 - [ ] P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
 
@@ -283,7 +283,12 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** S
 - **As run (2026-11-08):** on an 8 GB M1 MacBook Air with Lima 2.3.0; findings in [S3-lima-vz-8gb-mac.md](spikes/S3-lima-vz-8gb-mac.md). The non-interactive lifecycle, key injection, `list --json` fields, timings (cold 71 s, cached 21 s from create to customer SSH), `kill -9` of the host agent (the same VM comes back, rebooted) and memory (acceptable) are all answered. Lima rejects a forward of guest port 22, so the template forwards guest 2222 and the customer's sshd also listens there. Two catch-all `ignore` rules stop Lima forwarding every guest listener to the host's loopback. Open issue for P1.7: the guest reaches the node's loopback, LAN and tailnet (finding 3). **Open:** SSH from MAC-P to the Mac node over the tailnet; it was only checked through this Mac's own tailnet address.
 
-#### ☐ P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
+#### ◐ P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
+- **As run so far (2026-11-08), with the real gateway and no stub:** a throwaway compose project of the real control plane on MAC-P (Docker Desktop), published on the tailnet by `hack/demo.sh up`, then probed from FED-D over SSH with `curl`, `nc` and `openssl s_client`. The stack was torn down afterwards, and nothing was left on FED-D.
+  - From FED-D, the API's `/healthz` answered 200 in 72 ms by MAC-P's MagicDNS name, the image server answered 200, and the gateway port was open.
+  - The gateway's certificate carried the MagicDNS name, the tailnet IP, `localhost` and `127.0.0.1` as SANs, and was issued by the private CA (so a default trust store rejects it, as intended).
+  - ALPN negotiated `h2` on the gateway through Docker Desktop's published port.
+  - **Not run:** the 30 minutes idle with an agent connected, `docker compose restart` of the control plane with the agent reconnecting, and `tailscale down` on FED-D for two minutes. All three need an agent process on FED-D. Running a copied binary on the owner's machine was refused by this session's permission mode, so it stays for the owner or for the session on FED-D. `tailscale down` also needs root and would cut the SSH link.
 - **Goal:** Remove any doubt about the transport before the agent is built.
 - **Deliverables:** `docs/spikes/S4-grpc-mtls-tailscale.md`; `hack/s4/`: a self-signed CA, a server cert (SANs: MagicDNS name and tailnet IP), a client cert; a stub gateway in compose on MAC-P accepting `Connect` streams and echoing; a stub agent on FED-D that dials over the tailnet, sends a Hello every 10 s and logs acks; gRPC keepalive 20 s with `PermitWithoutStream`; reconnect with exponential backoff and full jitter capped at 60 s.
 - **Acceptance criteria:** Stream stays up 30 minutes idle. `tailscale down` on FED-D for two minutes then `tailscale up` → reconnected within the backoff cap. `docker compose restart` of the stub → agent reconnects. `nc -z <MAC-P tailnet ip> 8443` from FED-D succeeds (Docker Desktop publishes on the tailnet interface). Findings note anything about HTTP/2 through Docker Desktop's port proxy.
@@ -884,13 +889,13 @@ Not scheduled. Collected so nothing is forgotten.
 | Phase | Items | M | S | Sessions | Done |
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 4 |
-| P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
+| P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+2 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+5 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 (+2 partly) |
-| **Total** | **45** | **25** | **20** | **35** | **24 (+13 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **24 (+14 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
