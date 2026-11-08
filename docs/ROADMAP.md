@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 16 of 45 items** (about 13.5 of 35 estimated sessions) · 3 partly done · 26 not started. Updated with every commit that finishes an item.
+**Done: 16 of 45 items** (about 13.5 of 35 estimated sessions) · 4 partly done · 25 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -33,7 +33,7 @@
 - [ ] P2.5 — libvirt driver
 - [ ] P2.6 — Lima driver
 - [ ] P2.7 — Access module (port-map) · *partly done: the port allocator is built; the nftables and Lima backends and the hardware checks are not*
-- [ ] P2.8 — Metering outbox and crash safety
+- [ ] P2.8 — Metering outbox and crash safety · *partly done: metering and the kill test are built; the manual Lima check waits for P2.6*
 - [ ] P2.9 — Agent packaging
 
 **P3 — Kondukter v0**
@@ -373,13 +373,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built so far (2026-11-08, with P3.9):** `internal/agent/access` allocates host ports from `port_range` for 22/tcp plus each declared `PortSpec`. It reuses the ports an instance already holds and otherwise takes the lowest free ones, persists them in the agent store's `ports` bucket (so they survive restarts), frees ports a spec no longer declares, returns `ErrExhausted` when the range is full, and releases on deletion (the reconciler's `Deleted` hook) and for leftovers after a fresh pass (`Retain`). `PortMapping`s carry the configured advertise address and are reported in `InstanceStatus`. Unit tests cover assignment, reuse, persistence across a reopen, release, retain and exhaustion. **Open:** the nftables ruleset rendering and apply with golden files, the firewalld arrangement, the Lima `portForwards` backend, and every hardware check.
 
-#### ☐ P2.8 — Metering outbox and crash safety
+#### ◐ P2.8 — Metering outbox and crash safety
 - **Goal:** Usage is never lost or double-counted, and a crash never leaks or duplicates a VM.
 - **Deliverables:** `internal/agent/metering`: every 60 s, for each running instance, append `UsageRecord(instance_id, period_start, period_end, running_seconds)` to the outbox with periods aligned to the minute (idempotent key `(instance_id, period_start)`); outbox size cap with a warning before oldest-first eviction. `internal/agent/chaos_test.go`: runs the agent as a subprocess against the stub, `SIGKILL`s it at randomized points (before/after `Ensure`, before ack, during port apply), restarts it, and asserts via `driver.List()` that exactly the desired instances exist and each usage period arrived once.
 - **Acceptance criteria:** Chaos test passes 20 iterations with the mock driver under `-race`. Manual run on MAC-A with Lima: `kill -9` mid-provision → restart → one VM, no orphan Lima instance. Stub log shows each `(instance_id, period_start)` exactly once.
 - **Depends on:** P2.7
 - **Decisions required:** ADR-0002, ADR-0023
 - **Size:** M
+- **As built so far (2026-11-08):** `internal/agent/metering` wakes at every period boundary (60 s; `agent.Options.MeterPeriod` for tests). For each running VM it emits one minute-aligned `UsageRecord` per complete period since that instance's mark (or since `StartedAt`, so the first period is partial), up to 500 records per `UsageBatch`. The records and the new marks are written in one bbolt transaction (`store.AppendUsage`, bucket `meter`). A crash can therefore re-send a period, which Kondukter's `(instance_id, period_start)` key absorbs, but never lose one. A restarted agent backfills the minutes a VM kept running while the agent was down, at most 24 h back; marks of vanished instances are dropped. The outbox cap (20 000 messages) warns from 80 % and then evicts the oldest. Unit tests use a fake clock and driver: a partial first minute, no records within a minute, backfill after a restart without duplicates, a deleted instance, the 24 h bound, and eviction. `internal/agent/chaos_test.go` runs the real agent as a subprocess against the stub gateway. It `SIGKILL`s it 20 times after random 0.1–1 s delays (during start-up, provisioning, metering and acks) and changes the desired set after the 10th kill. Afterwards the mock host holds exactly the desired three VMs, the removed one is no longer metered, and both continuously desired instances have every 1 s period with no gaps (each counted once after the idempotent key; about 15 s under `-race`). **Open:** the manual Lima check on MAC-A (`kill -9` mid-provision → one VM, no orphan Lima instance) needs the Lima driver (P2.6).
 
 #### ☐ P2.9 — Agent packaging
 - **Goal:** Installable agent on Fedora and macOS.
@@ -659,12 +660,12 @@ Not scheduled. Collected so nothing is forgotten.
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
-| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+2 partly) |
+| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+3 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 10 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **16 (+3 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **16 (+4 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
