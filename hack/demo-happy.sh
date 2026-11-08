@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # demo-happy.sh — roadmap P4.5: the demo's main storyline end to end with
 # kctl, run on MAC-P against the demo stack (`make demo-up`) with the fleet
-# READY. It exits non-zero if a check fails. The narrative is in
-# docs/DEMO.md ("Happy path").
+# READY. It exits non-zero if a check fails. docs/DEMO.md has the run
+# sheet and a section on this script.
 #
 #   hack/demo-happy.sh [RUNS]
 #
