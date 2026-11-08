@@ -5,7 +5,8 @@
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "reset: run as root (sudo)" >&2; exit 1; }
 accounts=/var/lib/kondukter-demo/accounts.txt
-key=$(awk '/^customer@/{print $NF}' "$accounts")
+# The customer's line, whatever its email was renamed to: the role is the second column.
+key=$(awk '$2=="customer"{print $NF}' "$accounts")
 kc() { /usr/local/bin/kctl --server http://127.0.0.1:8080 --api-key "$key" "$@"; }
 ids=$(kc list -o json | python3 -c 'import json,sys
 d=json.load(sys.stdin); d=d.get("instances",d) if isinstance(d,dict) else d
