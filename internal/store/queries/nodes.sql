@@ -58,3 +58,9 @@ UPDATE nodes SET
   advertise_address = $7, labels = $8, cached_images = $9, updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: CreateNodeWithID :one
+-- Enrollment picks the id first: it goes into the certificate's SAN.
+INSERT INTO nodes (id, site_id, hostname, agent_version, cert_fingerprint, cert_expires_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING *;
