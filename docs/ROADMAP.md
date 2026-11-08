@@ -8,13 +8,13 @@
 
 ## Progress
 
-**Done: 19 of 45 items** (about 16 of 35 estimated sessions) · 8 partly done · 18 not started. Updated with every commit that finishes an item.
+**Done: 20 of 45 items** (about 16.5 of 35 estimated sessions) · 7 partly done · 18 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
 - [x] P0.2 — Toolchain and repo skeleton
 - [x] P0.3 — Protobuf contract v1 and codegen
-- [ ] P0.4 — Compose stack and CI · *partly done: CI has not run yet, it needs the branch pushed to GitHub*
+- [x] P0.4 — Compose stack and CI
 
 **P1 — Spikes**
 - [ ] P1.1 — S1: libvirt from pure Go on Fedora
@@ -233,14 +233,14 @@ Status: **Accepted** (ADR written, owner confirmed 2026-11-08) · **Proposed** (
 - **Size:** M
 - **As built (2026-11-08):** One `buf.gen.yaml` scopes plugins with per-plugin `types`: `protoc-gen-go-grpc` runs on `kondukter.agent.v1` only, `protoc-gen-connect-go` and `protoc-gen-es` on `kondukter.api.v1` only (the web app never sees the agent protocol), and `protoc-gen-go` runs on both. `protoc-gen-go-grpc` v1.6.2 is a `tool` directive in `go.mod`. `buf.yaml` exempts `agent.proto` from `SERVICE_SUFFIX` and the RPC request/response naming rules so the SPEC §8.2 names (`AgentGateway`, `AgentMessage`, `ControlMessage`) stay. `make lint` runs `buf lint`, then `buf breaking --against '.git#ref=$(BUF_AGAINST_REF)'` (default `main`, CI overrides it), skipped while that ref has no `buf.yaml`. Contract choices beyond the spec sketch: shared enums and messages in `api/v1/types.proto`; `GetMe` exists only on `AuthService` and accepts both session cookies and API keys, and `AccountService` gains `ListAPIKeys`; `AdminService.ListNodes`/`ListInstances` use `AdminService`-prefixed message names because `PartnerService` and `InstanceService` own the plain ones; `AdminService.UnquarantineNode` added so `demo-reset` can undo the on-stage quarantine; `Login`/`Logout` carry no idempotency key (they only touch the caller's own session). Agent protocol additions: `Hello.capabilities`, `Phase.PHASE_DELETED` (confirms a termination), `Accelerator.companion_pci_addresses` (the GPU's audio function passed through alongside it), `InstanceSpec.hostname`.
 
-#### ◐ P0.4 — Compose stack and CI
+#### ☑ P0.4 — Compose stack and CI
 - **Goal:** Local Postgres and CI gates from day one.
 - **Deliverables:** `deploy/compose/compose.yaml` with `postgres:17` (named volume, healthcheck) and a `kondukter` service built from `cmd/kondukter` (placeholder until P3); `.env.example`; `make db-up db-down db-psql`; `.github/workflows/ci.yml` running `make lint`, `buf lint`, `buf breaking`, `go test -race ./...` with a Postgres service container, and a `web` job (enabled in P5.1).
 - **Acceptance criteria:** `make db-up && make db-psql` connects on the Mac; CI green on a PR; a deliberately field-renumbering proto change fails CI.
 - **Depends on:** P0.3
 - **Decisions required:** ADR-0009, ADR-0014
 - **Size:** S
-- **As built (2026-11-08):** Compose publishes Postgres on `127.0.0.1:55432` by default, not 5432, so it never collides with a Postgres installed on the host (the dev Mac runs one). `.env.example` sits at the repo root; the Makefile passes `.env` if present, else `.env.example`, to `docker compose`. `make db-psql` takes piped SQL or `PSQL_ARGS`, and `make db-down V=1` drops the volume. The `kondukter` service builds from `deploy/compose/kondukter.Dockerfile` (golang:1.27 → distroless static, nonroot) and stays in the `app` profile until P4.3. CI (`.github/workflows/ci.yml`) checks generated code is current (`make gen && git diff --exit-code gen/`), then runs `make lint` with `BUF_AGAINST_REF` set to `origin/<base>` on pull requests and `HEAD~1` on pushes to `main`, then `make build test` with `KONDUKTER_DATABASE_URL` pointing at a `postgres:17` service; the `web` job is present with `if: false`. Verified locally: `make db-up && make db-psql` (PostgreSQL 17.11), the image builds and runs, actionlint is clean. **Open:** the CI criteria (green on a PR, a renumbering change fails) need the branch pushed to GitHub, which hasn't happened yet.
+- **As built (2026-11-08):** Compose publishes Postgres on `127.0.0.1:55432` by default, not 5432, so it never collides with a Postgres installed on the host (the dev Mac runs one). `.env.example` sits at the repo root; the Makefile passes `.env` if present, else `.env.example`, to `docker compose`. `make db-psql` takes piped SQL or `PSQL_ARGS`, and `make db-down V=1` drops the volume. The `kondukter` service builds from `deploy/compose/kondukter.Dockerfile` (golang:1.27 → distroless static, nonroot) and stays in the `app` profile until P4.3. CI (`.github/workflows/ci.yml`) checks generated code is current (`make gen && git diff --exit-code gen/`), then runs `make lint` with `BUF_AGAINST_REF` set to `origin/<base>` on pull requests and `HEAD~1` on pushes to `main`, then `make build test` with `KONDUKTER_DATABASE_URL` pointing at a `postgres:17` service; the `web` job is present with `if: false` (P5.1 enabled it). Verified locally: `make db-up && make db-psql` (PostgreSQL 17.11), the image builds and runs, actionlint is clean. On GitHub: CI went green on PR #1 (run 42459505215), and it is green on `main` (run 42463046799, at fd98dd6). Throwaway PR #2 renumbered `Shape.vcpu` from 3 to 9 and regenerated `gen/`. CI failed it at `make lint` (run 42463223998, after the generated-code check passed) with `buf breaking`: "Previously present field \"3\" with name \"vcpu\" on message \"Shape\" was deleted". The PR was then closed unmerged and its branch deleted.
 
 ---
 
@@ -767,14 +767,14 @@ Not scheduled. Collected so nothing is forgotten.
 
 | Phase | Items | M | S | Sessions | Done |
 |---|---|---|---|---|---|
-| P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
+| P0 Foundations | 4 | 1 | 3 | 2.5 | 4 |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+1 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 1 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **19 (+8 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **20 (+7 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
