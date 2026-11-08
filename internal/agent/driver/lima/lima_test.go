@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -188,7 +189,7 @@ func (f *fakeLima) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func newDriver(t *testing.T, f *fakeLima) *lima.Driver {
-	d, err := lima.New(lima.Options{Run: f.run, StateDir: t.TempDir(), Arch: "arm64"})
+	d, err := lima.New(lima.Options{Run: f.run, StateDir: t.TempDir(), Arch: "arm64", PollInterval: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,25 +363,29 @@ func TestDeleteCancelsACreateInProgress(t *testing.T) {
 	}
 }
 
-// The agent may die between Lima starting a VM and its own start returning;
-// a VM it then finds running is marked as having run all the same.
 // A start this agent process did not begin (a previous one died during
 // it): Lima says Running seconds into the boot, but the VM is running, and
-// marked as having run, only once its host agent reports it ready.
+// marked as having run, only once its host agent reports it ready. The
+// driver waits for that and fires an event, so the reconciler does not
+// learn of it only at its next tick.
 func TestRunningInstanceIsReadyOnceItsHostAgentSaysSo(t *testing.T) {
 	f := newFake(t)
 	in := f.add("kdk-a", "Running", map[string]string{lima.ParamInstance: "a"})
-	in.PID = 4242
+	in.PID = os.Getpid() // a live host agent
 	hostAgent(t, in, false)
 	d := newDriver(t, f)
 	ctx := context.Background()
 	if o, err := d.Ensure(ctx, spec("a")); err != nil || o.Phase != driver.PhaseProvisioning || o.Reason != "booting" {
 		t.Fatalf("Ensure while booting = %+v, %v", o, err)
 	}
+	if list, _ := d.List(ctx); len(list) != 1 || list[0].Phase != driver.PhaseProvisioning {
+		t.Fatalf("List while booting = %+v", list)
+	}
 	if _, err := os.Stat(filepath.Join(in.Dir, "kondukter-ready")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("ready marker while booting: %v", err)
 	}
 	hostAgent(t, in, true)
+	waitEvent(t, d, "a")
 	if o, err := d.Ensure(ctx, spec("a")); err != nil || o.Phase != driver.PhaseRunning || o.StartedAt.IsZero() {
 		t.Fatalf("Ensure once ready = %+v, %v", o, err)
 	}
@@ -388,6 +393,50 @@ func TestRunningInstanceIsReadyOnceItsHostAgentSaysSo(t *testing.T) {
 		t.Fatalf("ready marker: %v", err)
 	}
 	if f.count("start") != 0 || f.count("create") != 0 {
+		t.Fatalf("calls = %v", f.calls)
+	}
+}
+
+// Such a boot may also fail. The wait ends when the host agent exits, and
+// the VM, which never finished booting, is re-created.
+func TestBootWaitEndsWhenTheHostAgentExits(t *testing.T) {
+	ha := exec.CommandContext(t.Context(), "sleep", "60")
+	if err := ha.Start(); err != nil {
+		t.Fatal(err)
+	}
+	f := newFake(t)
+	in := f.add("kdk-a", "Running", map[string]string{lima.ParamInstance: "a"})
+	in.PID = ha.Process.Pid
+	hostAgent(t, in, false)
+	d := newDriver(t, f)
+	ctx := context.Background()
+	if o, err := d.Ensure(ctx, spec("a")); err != nil || o.Reason != "booting" {
+		t.Fatalf("Ensure while booting = %+v, %v", o, err)
+	}
+	_ = ha.Process.Kill()
+	_ = ha.Wait()
+	waitEvent(t, d, "a")
+	// Should Lima still list the dead pid, no new wait starts, so there is
+	// no stream of events.
+	if o, err := d.Ensure(ctx, spec("a")); err != nil || o.Phase != driver.PhaseProvisioning || o.Reason != "booting" {
+		t.Fatalf("Ensure with a dead host agent = %+v, %v", o, err)
+	}
+	select {
+	case ev := <-d.Events():
+		t.Fatalf("event %+v without a wait", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+	f.mu.Lock()
+	in.Status, in.PID = "Stopped", 0
+	f.mu.Unlock()
+	if o, err := d.Ensure(ctx, spec("a")); err != nil || !strings.Contains(o.Reason, "re-creating the stopped VM") {
+		t.Fatalf("Ensure once stopped = %+v, %v", o, err)
+	}
+	waitEvent(t, d, "a")
+	if o, err := d.Ensure(ctx, spec("a")); err != nil || o.Phase != driver.PhaseRunning {
+		t.Fatalf("Ensure = %+v, %v", o, err)
+	}
+	if f.count("delete") != 1 || f.count("create") != 1 || f.count("start") != 1 {
 		t.Fatalf("calls = %v", f.calls)
 	}
 }
@@ -418,23 +467,38 @@ func TestStoppedInstanceThatNeverBootedIsRecreated(t *testing.T) {
 }
 
 // Lima reports a VM as Broken between its host agent starting and the VM
-// running (seen in TestLima after the agent was killed mid-start).
+// running (seen in TestLima after the agent was killed mid-start): a boot in
+// progress, waited for without any limactl mutation, which Delete cancels.
 func TestBrokenWhileHostAgentRunsIsAStart(t *testing.T) {
 	f := newFake(t)
 	in := f.add("kdk-a", "Broken", map[string]string{lima.ParamInstance: "a"})
-	in.PID = 4242
+	in.PID = os.Getpid() // a live host agent
+	hostAgent(t, in, false)
 	_ = os.WriteFile(filepath.Join(in.Dir, "kondukter-ready"), nil, 0o600)
 	d := newDriver(t, f)
 	ctx := context.Background()
 	o, err := d.Ensure(ctx, spec("a"))
-	if err != nil || o.Phase != driver.PhaseProvisioning || !strings.Contains(o.Reason, "starting") {
+	if err != nil || o.Phase != driver.PhaseProvisioning || o.Reason != "booting" {
 		t.Fatalf("Ensure = %+v, %v", o, err)
 	}
 	if list, _ := d.List(ctx); len(list) != 1 || list[0].Phase != driver.PhaseProvisioning {
 		t.Fatalf("List = %+v", list)
 	}
-	if len(f.calls) != 2 || f.count("list") != 2 {
+	if n := f.count("list"); n != 2 || len(f.calls) != n {
 		t.Fatalf("calls = %v", f.calls)
+	}
+	done := make(chan error, 1)
+	go func() { done <- d.Delete(ctx, "a") }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Delete did not cancel the wait")
+	}
+	if f.count("delete") != 1 || len(f.names()) != 0 {
+		t.Fatalf("calls = %v, left %v", f.calls, f.names())
 	}
 }
 

@@ -56,6 +56,16 @@ web: ## Install, typecheck, test and build the web app into web/dist (run before
 
 web-dev: ## Vite dev server on :5173, proxying /api to a running `kondukter serve` (KONDUKTER_API_URL)
 	pnpm --dir web dev
+# Node platforms: the Fedora x86 nodes and the Apple Silicon Macs.
+AGENT_PLATFORMS ?= linux/amd64 darwin/arm64
+
+agent-dist: ## Cross-compile kondukter-agent for the nodes into bin/kondukter-agent-<os>-<arch>
+	@set -e; for p in $(AGENT_PLATFORMS); do \
+		os=$$(dirname $$p); arch=$$(basename $$p); \
+		echo "kondukter-agent $(VERSION) $$os/$$arch"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
+			-o $(BIN)/kondukter-agent-$$os-$$arch ./cmd/kondukter-agent; \
+	done
 
 test: ## Run Go tests with the race detector (DB tests skip if Postgres is down)
 	KONDUKTER_DATABASE_URL='$(DATABASE_URL)' $(GO) test -race ./...
