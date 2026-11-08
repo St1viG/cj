@@ -71,6 +71,7 @@ export const areas: readonly AreaDef[] = [
       },
       { path: "/app/keys", title: "Keys", item: "P5.2", nav: true, rpcs: ["AccountService.*"] },
       { path: "/app/usage", title: "Usage", item: "P5.2", nav: true, rpcs: ["UsageService.ListUsage"] },
+      { path: "/app/billing", title: "Billing", item: "P5.2", nav: true, rpcs: [] },
     ],
   },
   {
@@ -102,6 +103,7 @@ export const areas: readonly AreaDef[] = [
         nav: true,
         rpcs: ["PartnerService.GetUtilization", "PartnerService.ListSites"],
       },
+      { path: "/partner/earnings", title: "Earnings", item: "P5.3", nav: true, rpcs: [] },
     ],
   },
   {
@@ -155,5 +157,5 @@ export const areas: readonly AreaDef[] = [
 
 /** Every route pattern the router serves, for tests and docs. */
 export function allRoutePaths(): string[] {
-  return ["/login", ...areas.flatMap((a) => (a.shell ? [`/${a.area}`] : [])), ...areas.flatMap((a) => a.pages.map((p) => p.path))];
+  return ["/", "/products", "/login", ...areas.flatMap((a) => (a.shell ? [`/${a.area}`] : [])), ...areas.flatMap((a) => a.pages.map((p) => p.path))];
 }

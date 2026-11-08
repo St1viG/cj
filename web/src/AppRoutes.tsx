@@ -1,38 +1,23 @@
 import { Navigate, Outlet, Route, Routes } from "react-router";
 import { RoleRoute } from "./auth/RoleRoute";
-import { useMe } from "./auth/AuthProvider";
-import { homePath } from "./auth/roles";
-import { ErrorState, LoadingState } from "./components/State";
 import { AreaLayout } from "./pages/AreaLayout";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PagePlaceholder } from "./pages/PagePlaceholder";
+import { ProductsPage } from "./pages/ProductsPage";
 import { pageElements } from "./pages/registry";
 import { areas } from "./routes";
 
-/** `/`: signed in goes home, signed out goes to the login page. */
-function RootRedirect() {
-  const auth = useMe();
-  switch (auth.status) {
-    case "loading":
-      return <LoadingState />;
-    case "error":
-      return <ErrorState error={auth.error} onRetry={auth.retry} />;
-    case "signedIn":
-      return <Navigate to={homePath(auth.me.role)} replace />;
-    case "signedOut":
-      return <Navigate to="/login" replace />;
-  }
-}
-
 /**
- * Every route of docs/WEB_PAGES.md, built from `routes.ts`: /login, then one
+ * Every route of docs/WEB_PAGES.md, built from `routes.ts`: the guest home page, /login, then one
  * role-guarded group per area (/app, /partner, /admin, /stage).
  */
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<RootRedirect />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/products" element={<ProductsPage />} />
       <Route path="/login" element={<LoginPage />} />
       {areas.map((area) => {
         const base = `/${area.area}`;

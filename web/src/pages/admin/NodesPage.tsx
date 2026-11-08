@@ -9,8 +9,10 @@ import { useNow } from "../../hooks/useNow";
 import { useParam } from "../../hooks/useParam";
 import { nodeStatusLabel } from "../../lib/format";
 import { newId } from "../../lib/ids";
-import { DrainActions, nodeColumns, nodeName, refetchNodes } from "../nodes";
+import { FleetMap } from "../../components/FleetMap";
+import { DrainActions, FleetStats, nodeColumns, nodeName, refetchNodes, useNodeView, ViewToggle } from "../nodes";
 import { SiteFilter, useSiteParam } from "../partner/sites";
+import { PageTitle } from "../../components/PageTitle";
 
 /** The statuses `?status=` can name, in lifecycle order. */
 const statuses = [
@@ -73,6 +75,7 @@ export function NodesPage() {
   const [site] = useSiteParam();
   const [status, setStatus] = useParam("status");
   const now = useNow();
+  const [view, setView] = useNodeView();
   const chosen = statuses.find((s) => nodeStatusLabel(s) === status);
   const nodes = useQuery({
     queryKey: keys.fleet.adminNodes({ site, status: chosen ?? 0 }),
@@ -118,9 +121,13 @@ export function NodesPage() {
 
   return (
     <section>
-      <h1>Nodes</h1>
+      <PageTitle>Nodes</PageTitle>
+      <FleetStats nodes={nodes.data?.nodes} />
+      <div className="fleetbar">
       <SiteFilter />
-      <div>
+      <ViewToggle view={view} onChange={setView} />
+      </div>
+      <div className="filterrow">
         <label>
           Status{" "}
           <select value={chosen ? status : ""} onChange={(e) => setStatus(e.target.value)}>
@@ -133,6 +140,9 @@ export function NodesPage() {
           </select>
         </label>
       </div>
+      {view === "map" && nodes.data ? (
+        <FleetMap nodes={nodes.data.nodes} />
+      ) : (
       <DataTable
         columns={columns}
         rows={nodes.data?.nodes}
@@ -142,7 +152,8 @@ export function NodesPage() {
         onRetry={() => void nodes.refetch()}
         empty={site || chosen ? "No nodes match the filter." : "No nodes enrolled yet."}
       />
-      <p>
+      )}
+      <p className="note">
         <small>
           Every partner's nodes; the table refreshes every 5 s. Quarantine stops placements and ignores the node's reports;
           Drain stops placements and lets running instances finish. Generation lag is desired minus observed generation:

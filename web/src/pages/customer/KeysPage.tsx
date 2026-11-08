@@ -11,6 +11,7 @@ import { Form } from "../../components/Form";
 import { formatTimestamp } from "../../lib/format";
 import { newId } from "../../lib/ids";
 import { useApiKeys, useSshKeys } from "./queries";
+import { PageTitle } from "../../components/PageTitle";
 
 function SshKeys() {
   const { account } = useApi();
@@ -115,16 +116,16 @@ function ApiKeys() {
         For <code>kctl</code> and the API. A key is shown once, when you create it.
       </p>
       {created && (
-        <div role="status">
+        <div role="status" className="secret">
           <p>
             Your new key <strong>{created.name}</strong>. Copy it now; it is not shown again.
           </p>
-          <p>
+          <p className="row">
             <input
               readOnly
               aria-label="New API key"
               value={created.secret}
-              size={created.secret.length}
+              style={{ flex: "1 1 280px" }}
               onFocus={(e) => e.currentTarget.select()}
             />{" "}
             <CopyButton text={created.secret} />{" "}
@@ -165,7 +166,7 @@ function ApiKeys() {
 export function KeysPage() {
   return (
     <section>
-      <h1>Keys</h1>
+      <PageTitle>Keys</PageTitle>
       <SshKeys />
       <ApiKeys />
     </section>
