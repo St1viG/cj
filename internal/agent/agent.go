@@ -40,6 +40,8 @@ type Options struct {
 	Driver driver.Driver
 	// MeterPeriod overrides the 60 s usage metering period (tests, simulator).
 	MeterPeriod time.Duration
+	// ApplyNFT replaces `nft -f` for the libvirt driver's table (tests).
+	ApplyNFT func(ctx context.Context, ruleset string) error
 }
 
 // Inventory cadence (SPEC §7.1): sent at every Hello, whenever a periodic
@@ -142,6 +144,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	a.stream = stream.New(sc, a.store, a, a.log)
 	ports := access.New(a.store, a.cfg.PortRange.First, a.cfg.PortRange.Last, a.cfg.AdvertiseAddress)
+	synced, err := a.firewall(ports)
+	if err != nil {
+		return err
+	}
 	a.rec = reconcile.New(reconcile.Config{
 		Driver:  a.driver,
 		State:   a.store,
@@ -160,6 +166,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			_, err := a.stream.Enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_InstanceStatus{InstanceStatus: st}})
 			return err
 		},
+		Synced:   synced,
 		Fresh:    a.stream.Connected,
 		Log:      a.log,
 		Interval: a.opts.ReconcileInterval,
@@ -178,6 +185,30 @@ func (a *Agent) Run(ctx context.Context) error {
 	err = eg.Wait()
 	a.log.Info("agent stopping", "reason", context.Cause(ctx).Error())
 	return err
+}
+
+// firewall returns the reconciler's Synced hook: on libvirt nodes the
+// nftables table (DNAT per mapped port, guest isolation) is kept in step
+// after every pass. Lima forwards ports itself, the mock driver has nothing
+// to forward.
+func (a *Agent) firewall(ports *access.Allocator) (func(context.Context, map[string][]string), error) {
+	if a.cfg.Driver != "libvirt" {
+		return nil, nil
+	}
+	subnet, gw, dns, err := a.cfg.Network.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("network: %w", err)
+	}
+	log := a.log.With("module", "access")
+	fw := &access.Firewall{
+		Net:   access.NFTNetwork{Bridge: a.cfg.Network.Bridge, Subnet: subnet, Gateway: gw, DNS: dns},
+		Ports: ports, Apply: a.opts.ApplyNFT, Log: log,
+	}
+	return func(ctx context.Context, ips map[string][]string) {
+		if err := fw.Sync(ctx, ips); err != nil {
+			log.Error("apply nftables table; retrying next pass", "err", err)
+		}
+	}, nil
 }
 
 // inventoryLoop re-discovers the host and sends the inventory when it

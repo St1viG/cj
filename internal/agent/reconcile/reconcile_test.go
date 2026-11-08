@@ -221,3 +221,34 @@ func TestFailureCarriesReason(t *testing.T) {
 		t.Fatalf("reports = %v", h.reports)
 	}
 }
+
+func TestSyncedGetsGuestAddresses(t *testing.T) {
+	m, err := mock.New(config.Mock{Arch: "amd64", VCPU: 8, RAMMiB: 8192, DiskGiB: 100}, mock.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var synced []map[string][]string
+	rec := reconcile.New(reconcile.Config{
+		Driver: &flaky{Driver: m, fails: map[string]int{"b": 1}},
+		State:  &memState{},
+		Report: func(*agentv1.InstanceStatus) error { return nil },
+		Fresh:  func() bool { return true },
+		Synced: func(_ context.Context, ips map[string][]string) { synced = append(synced, ips) },
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err := rec.Pass(context.Background()); err != nil || len(synced) != 0 {
+		t.Fatalf("no snapshot yet: %v, %d syncs", err, len(synced))
+	}
+	if err := rec.Offer(snapshot(1, "a", "b")); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := rec.Pass(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Pass 1: b's Ensure failed, so only a has an address; pass 2: both.
+	if len(synced) < 2 || len(synced[0]) != 1 || len(synced[0]["a"]) == 0 || len(synced[len(synced)-1]) != 2 {
+		t.Fatalf("synced = %v", synced)
+	}
+}

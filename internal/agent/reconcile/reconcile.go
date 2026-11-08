@@ -53,7 +53,11 @@ type Config struct {
 	Deleted func(id string)
 	// Retain, if set, is given every instance that is desired or on the host
 	// after a fresh pass, to drop leftovers (e.g. ports) of anything else.
-	Retain   func(keep map[string]bool)
+	Retain func(keep map[string]bool)
+	// Synced, if set, is called after every pass with the guest addresses
+	// Ensure reported this pass (the nftables backend re-renders its DNAT
+	// rules from them). Instances whose Ensure failed are absent.
+	Synced   func(ctx context.Context, guestIPs map[string][]string)
 	Log      *slog.Logger
 	Interval time.Duration
 }
@@ -178,6 +182,7 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 	}
 
 	desired := map[string]bool{}
+	guestIPs := map[string][]string{}
 	attempted := true
 	for _, spec := range ds.GetInstances() {
 		if ctx.Err() != nil {
@@ -186,7 +191,9 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 		}
 		desired[spec.GetId()] = true
 		r.known[spec.GetId()] = true
-		r.ensure(ctx, gen, spec)
+		if ips := r.ensure(ctx, gen, spec); len(ips) > 0 {
+			guestIPs[spec.GetId()] = ips
+		}
 	}
 
 	if fresh {
@@ -216,6 +223,9 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 		}
 	}
 
+	if r.cfg.Synced != nil && ctx.Err() == nil {
+		r.cfg.Synced(ctx, guestIPs)
+	}
 	if fresh && attempted {
 		if r.cfg.Retain != nil {
 			keep := maps.Clone(desired)
@@ -229,7 +239,9 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) ensure(ctx context.Context, gen uint64, p *agentv1.InstanceSpec) {
+// ensure applies one spec and reports its status; it returns the guest
+// addresses the driver observed.
+func (r *Reconciler) ensure(ctx context.Context, gen uint64, p *agentv1.InstanceSpec) []string {
 	spec := FromProto(p, gen)
 	st := &agentv1.InstanceStatus{Id: spec.ID, AppliedGeneration: gen}
 	var err error
@@ -242,7 +254,7 @@ func (r *Reconciler) ensure(ctx context.Context, gen uint64, p *agentv1.Instance
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return
+			return nil
 		}
 		st.Phase, st.Reason = agentv1.Phase_PHASE_FAILED, err.Error()
 		r.cfg.Log.Warn("ensure failed; retrying next pass", "instance", spec.ID, "err", err)
@@ -256,6 +268,7 @@ func (r *Reconciler) ensure(ctx context.Context, gen uint64, p *agentv1.Instance
 		}
 	}
 	r.report(st)
+	return st.GetGuestIps()
 }
 
 func (r *Reconciler) deleted(id string, gen uint64) {
