@@ -3,12 +3,14 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useApi } from "../../api/ApiProvider";
 import { keys } from "../../api/keys";
 import { Confirm } from "../../components/Confirm";
+import { phaseKind, StatusChip } from "../../components/Status";
 import { type Column, DataTable } from "../../components/DataTable";
 import { useNow } from "../../hooks/useNow";
 import { useParam } from "../../hooks/useParam";
 import { isTerminalPhase } from "../../hooks/useWatchInstance";
 import { canTerminate, formatAge, formatMoney, formatTimestamp, phaseLabel, shortId, withReason } from "../../lib/format";
 import { newId } from "../../lib/ids";
+import { PageTitle } from "../../components/PageTitle";
 
 /** The most instances one ListInstances call returns. */
 export const ADMIN_INSTANCE_PAGE_SIZE = 200;
@@ -59,23 +61,23 @@ export function InstancesPage() {
   const orgName = rows?.find((i) => i.orgId === org)?.orgName;
 
   const columns: Column<Instance>[] = [
-    { header: "Id", cell: (i) => <span title={i.id}>{shortId(i.id)}</span> },
+    { header: "Id", cell: (i) => <span className="m ink-h" title={i.id}>{shortId(i.id)}</span> },
     { header: "Name", cell: (i) => i.name || "—" },
     {
       header: "Org",
       cell: (i) => (
-        <button type="button" title="Show only this org" onClick={() => setOrg(i.orgId)}>
+        <button type="button" className="sm g m" title="Show only this org" onClick={() => setOrg(i.orgId)}>
           {i.orgName || shortId(i.orgId)}
         </button>
       ),
     },
-    { header: "Phase", cell: (i) => withReason(phaseLabel(i.phase), i.phaseReason) },
+    { header: "Phase", cell: (i) => <StatusChip kind={phaseKind(i.phase)}>{withReason(phaseLabel(i.phase), i.phaseReason)}</StatusChip> },
     { header: "In phase for", cell: (i) => (isTerminalPhase(i.phase) ? "—" : formatAge(i.phaseChangedAt, now)) },
     {
       header: "Node",
       cell: (i) =>
         i.nodeId ? (
-          <button type="button" title="Show only this node" onClick={() => setNode(i.nodeId)}>
+          <button type="button" className="sm g m" title="Show only this node" onClick={() => setNode(i.nodeId)}>
             {hostname(i.nodeId)}
           </button>
         ) : (
@@ -91,17 +93,17 @@ export function InstancesPage() {
 
   return (
     <section>
-      <h1>Instances</h1>
+      <PageTitle>Instances</PageTitle>
       <label>
         <input type="checkbox" checked={includeTerminal} onChange={(e) => setAll(e.currentTarget.checked ? "1" : "")} /> Show
         terminated, failed and lost instances
       </label>
       {(node || org) && (
-        <p>
+        <p className="row">
           {node && (
             <>
               Node: {hostname(node)}{" "}
-              <button type="button" onClick={() => setNode("")}>
+              <button type="button" className="sm" onClick={() => setNode("")}>
                 Any node
               </button>{" "}
             </>
@@ -109,7 +111,7 @@ export function InstancesPage() {
           {org && (
             <>
               Org: {orgName ?? shortId(org)}{" "}
-              <button type="button" onClick={() => setOrg("")}>
+              <button type="button" className="sm" onClick={() => setOrg("")}>
                 Any org
               </button>
             </>

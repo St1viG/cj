@@ -33,9 +33,14 @@ export function Field(props: FieldProps) {
   }
 
   return (
-    <div>
-      <label htmlFor={id}>{props.label}</label> {control}
-      {props.hint && <small id={hintId}>{props.hint}</small>}
+    <div className="fld">
+      <label htmlFor={id}>{props.label}</label>
+      {control}
+      {props.hint && (
+        <small className="msg" id={hintId}>
+          {props.hint}
+        </small>
+      )}
     </div>
   );
 }

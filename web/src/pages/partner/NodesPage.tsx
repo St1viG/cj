@@ -5,14 +5,17 @@ import { useApi } from "../../api/ApiProvider";
 import { keys } from "../../api/keys";
 import { type Column, DataTable } from "../../components/DataTable";
 import { useNow } from "../../hooks/useNow";
-import { DrainActions, nodeColumns } from "../nodes";
+import { FleetMap } from "../../components/FleetMap";
+import { DrainActions, FleetStats, nodeColumns, useNodeView, ViewToggle } from "../nodes";
 import { SiteFilter, useSiteParam } from "./sites";
+import { PageTitle } from "../../components/PageTitle";
 
 /** `/partner/nodes`: the partner's nodes, all or one site's (`?site=`), with Drain and Undrain. */
 export function NodesPage() {
   const { partner } = useApi();
   const [site] = useSiteParam();
   const now = useNow();
+  const [view, setView] = useNodeView();
   const nodes = useQuery({
     queryKey: keys.fleet.partnerNodes(site),
     queryFn: () => partner.listNodes({ siteId: site }),
@@ -39,8 +42,15 @@ export function NodesPage() {
 
   return (
     <section>
-      <h1>Nodes</h1>
-      <SiteFilter />
+      <PageTitle>Nodes</PageTitle>
+      <FleetStats nodes={nodes.data?.nodes} />
+      <div className="fleetbar">
+        <SiteFilter />
+        <ViewToggle view={view} onChange={setView} />
+      </div>
+      {view === "map" && nodes.data ? (
+        <FleetMap nodes={nodes.data.nodes} />
+      ) : (
       <DataTable
         columns={columns}
         rows={nodes.data?.nodes}
@@ -54,7 +64,8 @@ export function NodesPage() {
           </>
         }
       />
-      <p>
+      )}
+      <p className="note">
         <small>
           Free is total minus reserved minus allocated. The table refreshes every 5 s. Drain stops new placements; running
           instances keep running, and a drained node with none left goes to maintenance.

@@ -9,9 +9,9 @@ import { ApiProvider } from "../../api/ApiProvider";
 import { createQueryClient } from "../../api/queryClient";
 import { formatClock } from "../../lib/format";
 import { instance } from "../../test/fakeApi";
-import { node } from "../../test/fakeFleet";
-import { type FakeStage, fakeStage } from "../../test/fakeStage";
+import { fakeFleet, node } from "../../test/fakeFleet";
 import { renderApp } from "../../test/fakeServer";
+import { type FakeStage, fakeStage } from "../../test/fakeStage";
 import { StagePage } from "./StagePage";
 
 /** The frozen "now" of these tests, so ages read the same every run. */
@@ -53,8 +53,12 @@ function renderStage(api: FakeStage, { search = "", pollMs = 30 }: { search?: st
 }
 
 const main = () => screen.getByRole("main");
-/** The list item of the node (or site) with this name. */
-const itemOf = (name: string) => screen.getByText(name).closest("li") as HTMLElement;
+/** The card of the node with this name. */
+const cardOf = (name: string) => screen.getByRole("heading", { level: 3, name }).closest("article") as HTMLElement;
+/** The section of the site with this name. */
+const siteOf = (name: string) => screen.getByRole("heading", { level: 2, name }).closest("section") as HTMLElement;
+/** The row of the instance shown as `label` in `scope`. */
+const rowOf = (scope: HTMLElement, label: string | RegExp) => within(scope).getByText(label).closest("li") as HTMLElement;
 
 beforeEach(() => {
   // Only the clock stands still: real timers keep the polling and the waits going.
@@ -66,30 +70,35 @@ afterEach(() => {
 });
 
 describe("/stage", () => {
-  it("lists nodes by site with status and last seen, and each node's unfinished instances with phase and age", async () => {
+  it("shows nodes by site with status and last seen, and each node's unfinished instances with phase and age", async () => {
     renderStage(fleet());
-    await screen.findByText("fed-d");
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
 
     // Sites by name, each with its partner.
-    const sites = within(main()).getAllByText(/^(demo|lab)$/, { selector: "strong" }).map((e) => e.textContent);
+    const sites = screen.getAllByRole("heading", { level: 2 }).map((e) => e.textContent);
     expect(sites).toEqual(["demo", "lab"]);
-    expect(itemOf("demo").textContent).toContain("demo-dc");
+    expect(within(siteOf("demo")).getByText("demo-dc")).toBeTruthy();
 
-    const fedD = itemOf("fed-d");
-    expect(fedD.textContent).toContain("fed-d: ready, last seen 3 s ago");
-    expect(within(fedD).getByText(`web-1 (${WEB}): running for 2 min 05 s`)).toBeTruthy();
+    const fedD = cardOf("fed-d");
+    expect(within(fedD).getByText("ready")).toBeTruthy();
+    expect(within(fedD).getByTitle("last report").textContent).toBe("last seen 3 s ago");
+    const web = rowOf(fedD, `web-1 (${WEB})`);
+    expect(web.textContent).toContain("running");
+    expect(web.textContent).toContain("2 min 05 s");
 
-    expect(itemOf("mac-a").textContent).toContain("last seen 12 s ago");
-    expect(within(itemOf("mac-a")).getByText("No instances.")).toBeTruthy();
+    expect(within(cardOf("mac-a")).getByTitle("last report").textContent).toBe("last seen 12 s ago");
+    expect(within(cardOf("mac-a")).getByText("No instances.")).toBeTruthy();
 
     // The unnamed instance is on the lab node, in its phase for 20 s.
-    expect(within(itemOf("lab-1")).getByText(`${ANON}: provisioning for 20 s`)).toBeTruthy();
+    const anon = rowOf(cardOf("lab-1"), ANON);
+    expect(anon.textContent).toContain("provisioning");
+    expect(anon.textContent).toContain("20 s");
   });
 
   it("leaves out ended instances and retired nodes, and asks the server for exactly that", async () => {
     const api = fleet();
     renderStage(api);
-    await screen.findByText("fed-d");
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
 
     expect(screen.queryByText(/gone/)).toBeNull();
     expect(screen.queryByText("retired-box")).toBeNull();
@@ -98,12 +107,19 @@ describe("/stage", () => {
     expect(api.calls.listInstances[0]).toEqual({ includeTerminal: false, pageSize: 200 });
   });
 
+  it("draws a node card with the node's status chip, and marks an unreachable node", async () => {
+    renderStage(fakeStage({ nodes: [node("n1", "fed-d", { status: NodeStatus.UNREACHABLE, statusReason: "missed heartbeats" })] }));
+    const card = (await screen.findByRole("heading", { level: 3, name: "fed-d" })).closest("article") as HTMLElement;
+    expect(within(card).getByText("unreachable (missed heartbeats)")).toBeTruthy();
+    expect(card.className).toContain("s-unr");
+  });
+
   it("?demo=1 shows short names for the projector", async () => {
     renderStage(fleet(), { search: "?demo=1" });
-    await screen.findByText("fed-d");
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
 
-    expect(within(itemOf("fed-d")).getByText("web-1: running for 2 min 05 s")).toBeTruthy();
-    expect(within(itemOf("lab-1")).getByText("bbbbbbbb: provisioning for 20 s")).toBeTruthy();
+    expect(rowOf(cardOf("fed-d"), "web-1").textContent).toContain("2 min 05 s");
+    expect(within(cardOf("lab-1")).getByText("bbbbbbbb")).toBeTruthy();
     expect(main().textContent).not.toContain(WEB);
     expect(main().textContent).not.toContain(ANON);
   });
@@ -111,36 +127,43 @@ describe("/stage", () => {
   it("follows a drill without a reload: node and instance go unreachable, then recover", async () => {
     const api = fleet();
     renderStage(api);
-    await screen.findByText("fed-d");
-    expect(within(itemOf("fed-d")).getByText(/: running for/)).toBeTruthy();
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
+    expect(within(cardOf("fed-d")).getByText("running")).toBeTruthy();
 
     // The agent stops heartbeating; the watchdog marks the node, then its instances.
     api.setNode("node-1", { status: NodeStatus.UNREACHABLE, statusReason: "heartbeat lost" });
     api.setInstance(WEB, { phase: InstancePhase.UNREACHABLE, phaseReason: "node unreachable", phaseChangedAt: ts(0) });
     // The nodes and the instances are two polls, so each line may change a moment apart: wait for both.
     await waitFor(() => {
-      expect(itemOf("fed-d").textContent).toContain("fed-d: unreachable (heartbeat lost)");
-      expect(within(itemOf("fed-d")).getByText(`web-1 (${WEB}): unreachable (node unreachable) for 0 s`)).toBeTruthy();
+      const card = cardOf("fed-d");
+      expect(within(card).getByText("unreachable (heartbeat lost)")).toBeTruthy();
+      const row = rowOf(card, `web-1 (${WEB})`);
+      expect(row.textContent).toContain("unreachable (node unreachable)");
+      expect(row.textContent).toContain("0 s");
     });
+    expect(cardOf("fed-d").className).toContain("s-unr");
 
     // The agent is back.
     api.setNode("node-1", { status: NodeStatus.READY, statusReason: "" });
     // The control plane's own wording for a recovered instance; the page does not repeat it.
     api.setInstance(WEB, { phase: InstancePhase.RUNNING, phaseReason: "node_back", phaseChangedAt: ts(0) });
     await waitFor(() => {
-      expect(itemOf("fed-d").textContent).toContain("fed-d: ready, last seen");
-      expect(within(itemOf("fed-d")).getByText(`web-1 (${WEB}): running for 0 s`)).toBeTruthy();
+      const card = cardOf("fed-d");
+      expect(within(card).getByText("ready")).toBeTruthy();
+      const row = rowOf(card, `web-1 (${WEB})`);
+      expect(row.textContent).toContain("running");
+      expect(row.textContent).not.toContain("node_back");
     });
   });
 
   it("moves an instance to its new node and drops one that ended", async () => {
     const api = fleet();
     renderStage(api);
-    await screen.findByText("fed-d");
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
 
     api.setInstance(WEB, { nodeId: "node-2" });
-    await waitFor(() => expect(within(itemOf("mac-a")).getByText(/^web-1/)).toBeTruthy());
-    expect(within(itemOf("fed-d")).getByText("No instances.")).toBeTruthy();
+    await waitFor(() => expect(within(cardOf("mac-a")).getByText(/^web-1/)).toBeTruthy());
+    expect(within(cardOf("fed-d")).getByText("No instances.")).toBeTruthy();
 
     api.setInstance(WEB, { phase: InstancePhase.TERMINATED });
     await waitFor(() => expect(screen.queryByText(/^web-1/)).toBeNull());
@@ -148,12 +171,12 @@ describe("/stage", () => {
 
   it("keeps ages counting between polls", async () => {
     renderStage(fleet(), { pollMs: 60_000 }); // no poll will land during the test
-    await screen.findByText("fed-d");
-    expect(main().textContent).toContain("running for 2 min 05 s");
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
+    expect(main().textContent).toContain("2 min 05 s");
     expect(main().textContent).toContain("last seen 3 s ago");
 
     vi.setSystemTime(T0 + 10_000);
-    await waitFor(() => expect(main().textContent).toContain("running for 2 min 15 s"));
+    await waitFor(() => expect(main().textContent).toContain("2 min 15 s"));
     expect(main().textContent).toContain("last seen 13 s ago");
   });
 
@@ -164,8 +187,13 @@ describe("/stage", () => {
     renderStage(api, { search: "?demo=1" });
 
     const section = (await screen.findByRole("heading", { name: "Not on a listed node" })).closest("section") as HTMLElement;
-    expect(within(section).getByText("queued: pending for 30 s")).toBeTruthy();
-    expect(within(section).getByText("ghost: running for 40 s, on node node-gon")).toBeTruthy();
+    const queued = rowOf(section, "queued");
+    expect(queued.textContent).toContain("pending");
+    expect(queued.textContent).toContain("30 s");
+    const ghost = rowOf(section, "ghost");
+    expect(ghost.textContent).toContain("running");
+    expect(ghost.textContent).toContain("on node node-gon");
+    expect(ghost.textContent).toContain("40 s");
   });
 
   it("says when no node has enrolled", async () => {
@@ -186,25 +214,25 @@ describe("/stage", () => {
 
     delete api.fail.listNodes;
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("fed-d")).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 3, name: "fed-d" })).toBeTruthy();
   });
 
   it("keeps showing the last fleet, says so, and recovers, when contact is lost mid-drill", async () => {
     const api = fleet();
     renderStage(api);
-    await screen.findByText("fed-d");
+    await screen.findByRole("heading", { level: 3, name: "fed-d" });
 
     // The control plane restarts (failure drill 2).
     api.fail.listNodes = new ConnectError("connection refused", Code.Unavailable);
     const banner = await screen.findByRole("alert");
     expect(banner.textContent).toContain("Lost contact with Kondukter (connection refused)");
     expect(banner.textContent).toContain(`Showing what it said at ${formatClock(T0)}`);
-    expect(screen.getByText("fed-d")).toBeTruthy(); // not blanked
-    expect(within(itemOf("fed-d")).getByText(/^web-1/)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "fed-d" })).toBeTruthy(); // not blanked
+    expect(within(cardOf("fed-d")).getByText(/^web-1/)).toBeTruthy();
 
     delete api.fail.listNodes;
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
-    expect(screen.getByText("fed-d")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "fed-d" })).toBeTruthy();
   });
 
   it("shows when it last updated and how often it asks", async () => {
@@ -216,10 +244,15 @@ describe("/stage", () => {
 describe("/stage in the app", () => {
   it("opens for the operator without the area header, and honors ?demo=1", async () => {
     renderApp("/stage?demo=1", fleet());
-    expect(await screen.findByRole("heading", { name: "Fleet" })).toBeTruthy();
-    expect(await screen.findByText("fed-d")).toBeTruthy();
-    expect(within(itemOf("fed-d")).getByText("web-1: running for 2 min 05 s")).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Fleet" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 3, name: "fed-d" })).toBeTruthy();
+    expect(rowOf(cardOf("fed-d"), "web-1").textContent).toContain("2 min 05 s");
     expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
     expect(screen.getByTestId("location").textContent).toBe("/stage?demo=1");
+  });
+
+  it("is for operators only", async () => {
+    renderApp("/stage", fakeFleet({ as: "partner" }));
+    expect(await screen.findByRole("heading", { name: "Nodes" })).toBeTruthy();
   });
 });

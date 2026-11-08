@@ -1,4 +1,5 @@
 import type { PageDef } from "../routes";
+import { PageTitle } from "../components/PageTitle";
 
 /**
  * Stands in for a page until its roadmap item lands (P5.2 to P5.5). It shows
@@ -8,7 +9,7 @@ import type { PageDef } from "../routes";
 export function PagePlaceholder({ page }: { page: PageDef }) {
   return (
     <section>
-      <h1>{page.title}</h1>
+      <PageTitle>{page.title}</PageTitle>
       <p>
         <code>{page.path}</code>: the contents arrive with roadmap {page.item}.
       </p>
