@@ -66,6 +66,8 @@ func startPlane(t *testing.T) *plane {
 	p.f = storetest.Seed(t, srv.Store)
 	srv.Nodes.Interval = 100 * time.Millisecond
 	srv.Nodes.Now = func() time.Time { return time.Now().Add(time.Duration(p.skew.Load())) }
+	// The tests skew the clock by less than RestartGrace, so start outside it.
+	srv.Nodes.Started = time.Now().Add(-controller.RestartGrace)
 	srv.Scheduler.Interval = 200 * time.Millisecond
 
 	tlsCfg, err := srv.CA.ServerTLS(cfg.GatewayHosts)
