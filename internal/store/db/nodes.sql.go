@@ -126,6 +126,20 @@ func (q *Queries) CreateNodeWithID(ctx context.Context, arg CreateNodeWithIDPara
 	return i, err
 }
 
+const deleteAccelerator = `-- name: DeleteAccelerator :exec
+DELETE FROM accelerators WHERE node_id = $1 AND local_id = $2
+`
+
+type DeleteAcceleratorParams struct {
+	NodeID  uuid.UUID
+	LocalID string
+}
+
+func (q *Queries) DeleteAccelerator(ctx context.Context, arg DeleteAcceleratorParams) error {
+	_, err := q.db.Exec(ctx, deleteAccelerator, arg.NodeID, arg.LocalID)
+	return err
+}
+
 const getNode = `-- name: GetNode :one
 SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes WHERE id = $1
 `
@@ -211,6 +225,33 @@ func (q *Queries) GetNodeForUpdate(ctx context.Context, id uuid.UUID) (Node, err
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAcceleratorLocalIDsInUse = `-- name: ListAcceleratorLocalIDsInUse :many
+SELECT a.local_id FROM accelerators a
+JOIN allocations al ON al.accelerator_id = a.id AND al.released_at IS NULL
+WHERE a.node_id = $1
+`
+
+// Accelerators of a node held by an active allocation.
+func (q *Queries) ListAcceleratorLocalIDsInUse(ctx context.Context, nodeID uuid.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAcceleratorLocalIDsInUse, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var local_id string
+		if err := rows.Scan(&local_id); err != nil {
+			return nil, err
+		}
+		items = append(items, local_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAcceleratorsByNode = `-- name: ListAcceleratorsByNode :many
@@ -341,6 +382,93 @@ func (q *Queries) ListNodesBySite(ctx context.Context, siteID uuid.UUID) ([]Node
 		return nil, err
 	}
 	return items, nil
+}
+
+const markAcceleratorMissing = `-- name: MarkAcceleratorMissing :exec
+UPDATE accelerators SET health = 'missing', health_reason = 'no longer reported by the agent', updated_at = now()
+WHERE node_id = $1 AND local_id = $2
+`
+
+type MarkAcceleratorMissingParams struct {
+	NodeID  uuid.UUID
+	LocalID string
+}
+
+func (q *Queries) MarkAcceleratorMissing(ctx context.Context, arg MarkAcceleratorMissingParams) error {
+	_, err := q.db.Exec(ctx, markAcceleratorMissing, arg.NodeID, arg.LocalID)
+	return err
+}
+
+const nodeHeartbeat = `-- name: NodeHeartbeat :exec
+UPDATE nodes SET last_seen_at = now(), observed_generation = $2 WHERE id = $1
+`
+
+type NodeHeartbeatParams struct {
+	ID                 uuid.UUID
+	ObservedGeneration int64
+}
+
+func (q *Queries) NodeHeartbeat(ctx context.Context, arg NodeHeartbeatParams) error {
+	_, err := q.db.Exec(ctx, nodeHeartbeat, arg.ID, arg.ObservedGeneration)
+	return err
+}
+
+const nodeHello = `-- name: NodeHello :one
+UPDATE nodes SET
+  agent_version = $1, driver = $2,
+  observed_generation = $3::bigint,
+  last_seen_at = now(), updated_at = now(),
+  status = CASE WHEN status IN ('enrolling', 'unreachable') THEN 'ready'::node_status ELSE status END,
+  status_reason = CASE WHEN status IN ('enrolling', 'unreachable') THEN '' ELSE status_reason END,
+  -- An agent ahead of us (re-enrolled with an old local store) would ignore
+  -- every snapshot as out of date; jump past its generation.
+  desired_generation = CASE WHEN $3::bigint > desired_generation
+                            THEN $3::bigint + 1 ELSE desired_generation END
+WHERE id = $4
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+`
+
+type NodeHelloParams struct {
+	AgentVersion string
+	Driver       string
+	LastApplied  int64
+	ID           uuid.UUID
+}
+
+// A Hello makes an enrolling or unreachable node ready; other statuses
+// (draining, maintenance, quarantined) are operator decisions and stay.
+func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (Node, error) {
+	row := q.db.QueryRow(ctx, nodeHello,
+		arg.AgentVersion,
+		arg.Driver,
+		arg.LastApplied,
+		arg.ID,
+	)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.SiteID,
+		&i.Hostname,
+		&i.Arch,
+		&i.Os,
+		&i.Kernel,
+		&i.Driver,
+		&i.AgentVersion,
+		&i.Status,
+		&i.StatusReason,
+		&i.CapacityClass,
+		&i.CertFingerprint,
+		&i.CertExpiresAt,
+		&i.Labels,
+		&i.AdvertiseAddress,
+		&i.CachedImages,
+		&i.DesiredGeneration,
+		&i.ObservedGeneration,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setNodeStatus = `-- name: SetNodeStatus :one

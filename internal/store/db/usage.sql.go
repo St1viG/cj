@@ -12,6 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const insertOwnedUsageRecord = `-- name: InsertOwnedUsageRecord :execrows
+INSERT INTO usage_records (instance_id, period_start, period_end, running_seconds, node_id)
+SELECT $1, $2, $3, $4, $5
+WHERE EXISTS (SELECT 1 FROM instances WHERE id = $1 AND node_id = $5)
+ON CONFLICT (instance_id, period_start) DO NOTHING
+`
+
+type InsertOwnedUsageRecordParams struct {
+	InstanceID     uuid.UUID
+	PeriodStart    time.Time
+	PeriodEnd      time.Time
+	RunningSeconds int32
+	NodeID         uuid.UUID
+}
+
+// Gateway ingest: idempotent by (instance_id, period_start), and only for
+// instances placed on the reporting node.
+func (q *Queries) InsertOwnedUsageRecord(ctx context.Context, arg InsertOwnedUsageRecordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertOwnedUsageRecord,
+		arg.InstanceID,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.RunningSeconds,
+		arg.NodeID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertUsageRecord = `-- name: InsertUsageRecord :execrows
 INSERT INTO usage_records (instance_id, period_start, period_end, running_seconds, node_id)
 VALUES ($1, $2, $3, $4, $5)

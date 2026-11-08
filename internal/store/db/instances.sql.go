@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,7 +15,7 @@ import (
 const createInstance = `-- name: CreateInstance :one
 INSERT INTO instances (org_id, offer_id, image_id, name, spec, created_by)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at
+RETURNING id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at
 `
 
 type CreateInstanceParams struct {
@@ -55,12 +56,13 @@ func (q *Queries) CreateInstance(ctx context.Context, arg CreateInstanceParams) 
 		&i.ScheduledAt,
 		&i.RunningAt,
 		&i.TerminatedAt,
+		&i.AgentStatusAt,
 	)
 	return i, err
 }
 
 const getInstance = `-- name: GetInstance :one
-SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at FROM instances WHERE id = $1
+SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at FROM instances WHERE id = $1
 `
 
 func (q *Queries) GetInstance(ctx context.Context, id uuid.UUID) (Instance, error) {
@@ -85,12 +87,13 @@ func (q *Queries) GetInstance(ctx context.Context, id uuid.UUID) (Instance, erro
 		&i.ScheduledAt,
 		&i.RunningAt,
 		&i.TerminatedAt,
+		&i.AgentStatusAt,
 	)
 	return i, err
 }
 
 const getInstanceForUpdate = `-- name: GetInstanceForUpdate :one
-SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at FROM instances WHERE id = $1 FOR UPDATE
+SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at FROM instances WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetInstanceForUpdate(ctx context.Context, id uuid.UUID) (Instance, error) {
@@ -115,6 +118,7 @@ func (q *Queries) GetInstanceForUpdate(ctx context.Context, id uuid.UUID) (Insta
 		&i.ScheduledAt,
 		&i.RunningAt,
 		&i.TerminatedAt,
+		&i.AgentStatusAt,
 	)
 	return i, err
 }
@@ -171,4 +175,154 @@ func (q *Queries) ListInstanceEvents(ctx context.Context, instanceID uuid.UUID) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const listSnapshotInstances = `-- name: ListSnapshotInstances :many
+SELECT
+  i.id, i.spec,
+  coalesce(array_agg(a.local_id ORDER BY a.local_id) FILTER (WHERE a.local_id IS NOT NULL), '{}')::text[] AS accelerator_ids
+FROM instances i
+LEFT JOIN allocations al ON al.instance_id = i.id AND al.released_at IS NULL AND al.accelerator_id IS NOT NULL
+LEFT JOIN accelerators a ON a.id = al.accelerator_id
+WHERE i.node_id = $1 AND i.desired AND i.phase NOT IN ('terminated', 'lost', 'failed')
+GROUP BY i.id
+ORDER BY i.created_at, i.id
+`
+
+type ListSnapshotInstancesRow struct {
+	ID             uuid.UUID
+	Spec           []byte
+	AcceleratorIds []string
+}
+
+// Everything the node should run: placed, still desired, not terminal,
+// with the concrete accelerators chosen by the scheduler.
+func (q *Queries) ListSnapshotInstances(ctx context.Context, nodeID *uuid.UUID) ([]ListSnapshotInstancesRow, error) {
+	rows, err := q.db.Query(ctx, listSnapshotInstances, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSnapshotInstancesRow{}
+	for rows.Next() {
+		var i ListSnapshotInstancesRow
+		if err := rows.Scan(&i.ID, &i.Spec, &i.AcceleratorIds); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const placeInstance = `-- name: PlaceInstance :one
+UPDATE instances SET
+  node_id = $1, phase = 'scheduled', phase_reason = '', phase_changed_at = now(),
+  placement_generation = $2, scheduled_at = now()
+WHERE id = $3 AND phase = 'pending'
+RETURNING id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at
+`
+
+type PlaceInstanceParams struct {
+	NodeID              *uuid.UUID
+	PlacementGeneration int64
+	ID                  uuid.UUID
+}
+
+// The scheduler's commit step 4 (SPEC §6.5); the caller bumps the node
+// generation in the same transaction and passes the new value.
+func (q *Queries) PlaceInstance(ctx context.Context, arg PlaceInstanceParams) (Instance, error) {
+	row := q.db.QueryRow(ctx, placeInstance, arg.NodeID, arg.PlacementGeneration, arg.ID)
+	var i Instance
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.OfferID,
+		&i.ImageID,
+		&i.NodeID,
+		&i.Name,
+		&i.Desired,
+		&i.Phase,
+		&i.PhaseReason,
+		&i.PhaseChangedAt,
+		&i.PlacementGeneration,
+		&i.Spec,
+		&i.Connection,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ScheduledAt,
+		&i.RunningAt,
+		&i.TerminatedAt,
+		&i.AgentStatusAt,
+	)
+	return i, err
+}
+
+const setInstanceAgentStatus = `-- name: SetInstanceAgentStatus :exec
+UPDATE instances SET agent_status_at = $2, connection = $3 WHERE id = $1
+`
+
+type SetInstanceAgentStatusParams struct {
+	ID            uuid.UUID
+	AgentStatusAt *time.Time
+	Connection    []byte
+}
+
+func (q *Queries) SetInstanceAgentStatus(ctx context.Context, arg SetInstanceAgentStatusParams) error {
+	_, err := q.db.Exec(ctx, setInstanceAgentStatus, arg.ID, arg.AgentStatusAt, arg.Connection)
+	return err
+}
+
+const setInstancePhase = `-- name: SetInstancePhase :one
+UPDATE instances SET
+  phase = $1, phase_reason = $2, phase_changed_at = now(),
+  running_at = CASE WHEN $1 = 'running'::instance_phase AND running_at IS NULL THEN now() ELSE running_at END,
+  terminated_at = CASE WHEN $1 IN ('terminated'::instance_phase, 'lost'::instance_phase, 'failed'::instance_phase) THEN now() ELSE terminated_at END,
+  desired = CASE WHEN $1 IN ('terminated'::instance_phase, 'lost'::instance_phase, 'failed'::instance_phase) THEN false ELSE desired END
+WHERE id = $3
+RETURNING id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at
+`
+
+type SetInstancePhaseParams struct {
+	Phase       InstancePhase
+	PhaseReason string
+	ID          uuid.UUID
+}
+
+func (q *Queries) SetInstancePhase(ctx context.Context, arg SetInstancePhaseParams) (Instance, error) {
+	row := q.db.QueryRow(ctx, setInstancePhase, arg.Phase, arg.PhaseReason, arg.ID)
+	var i Instance
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.OfferID,
+		&i.ImageID,
+		&i.NodeID,
+		&i.Name,
+		&i.Desired,
+		&i.Phase,
+		&i.PhaseReason,
+		&i.PhaseChangedAt,
+		&i.PlacementGeneration,
+		&i.Spec,
+		&i.Connection,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ScheduledAt,
+		&i.RunningAt,
+		&i.TerminatedAt,
+		&i.AgentStatusAt,
+	)
+	return i, err
+}
+
+const setInstanceUndesired = `-- name: SetInstanceUndesired :exec
+UPDATE instances SET desired = false WHERE id = $1
+`
+
+func (q *Queries) SetInstanceUndesired(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, setInstanceUndesired, id)
+	return err
 }
