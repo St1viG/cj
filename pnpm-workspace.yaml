@@ -1,0 +1,4 @@
+# The root package pins the protobuf codegen tooling (buf.gen.yaml); web/ is the
+# single-page app (roadmap P5.1, ADR-0022). One lockfile covers both.
+packages:
+  - web

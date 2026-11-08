@@ -27,7 +27,7 @@ SQLC         ?= $(if $(filter $(SQLC_VERSION),$(shell sqlc version 2>/dev/null))
 BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
-.PHONY: help tools gen sqlc build test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
+.PHONY: help tools gen sqlc build web web-dev test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -45,8 +45,17 @@ gen: ## Generate gen/go and gen/ts from proto/, internal/store/db from SQL
 sqlc: ## Generate internal/store/db from internal/store/{migrations,queries}
 	$(SQLC) generate
 
-build: ## Build every command (kondukter, kondukter-agent, kctl, kdk-sim, …) into bin/
+build: ## Build every command (kondukter, kondukter-agent, kctl, kdk-sim, …) into bin/; kondukter embeds web/dist
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
+
+web: ## Install, typecheck, test and build the web app into web/dist (run before `make build` to embed it)
+	pnpm install --frozen-lockfile
+	pnpm --dir web typecheck
+	pnpm --dir web test
+	pnpm --dir web build
+
+web-dev: ## Vite dev server on :5173, proxying /api to a running `kondukter serve` (KONDUKTER_API_URL)
+	pnpm --dir web dev
 
 test: ## Run Go tests with the race detector (DB tests skip if Postgres is down)
 	KONDUKTER_DATABASE_URL='$(DATABASE_URL)' $(GO) test -race ./...

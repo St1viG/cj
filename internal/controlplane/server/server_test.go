@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/St1viG/cj/internal/store"
 	"github.com/St1viG/cj/internal/store/db"
 	"github.com/St1viG/cj/internal/store/storetest"
+	"github.com/St1viG/cj/web"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -328,5 +330,57 @@ func TestUsageCrossCheck(t *testing.T) {
 	c := &usage.CrossCheck{Store: p.srv.Store, Log: quiet, Tolerance: 2 * time.Second}
 	if bad, err := c.Sweep(ctx); err != nil || len(bad) != 0 {
 		t.Fatalf("cross-check = %+v, %v", bad, err)
+	}
+}
+
+// TestWebAppAndAPIPrefix covers ADR-0022 on the real listener: the embedded
+// app answers at / and for client-side routes, and the Connect services answer
+// both at the root (kctl, agents) and under /api (the browser).
+func TestWebAppAndAPIPrefix(t *testing.T) {
+	p := startPlane(t)
+	do := func(method, path, contentType, body string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(context.Background(), method, p.api+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	// A wrong login is a Connect error from the handler, not an HTML page.
+	const login = `{"email":"nobody@demo.local","password":"wrong"}`
+	for _, path := range []string{"/kondukter.api.v1.AuthService/Login", "/api/kondukter.api.v1.AuthService/Login"} {
+		status, body := do(http.MethodPost, path, "application/json", login)
+		if status != http.StatusUnauthorized || !strings.Contains(body, `"unauthenticated"`) {
+			t.Errorf("POST %s = %d %s, want 401 unauthenticated", path, status, body)
+		}
+	}
+	// An unknown procedure is not rewritten into the app.
+	if status, _ := do(http.MethodPost, "/api/kondukter.api.v1.NoService/NoMethod", "application/json", "{}"); status != http.StatusNotFound {
+		t.Errorf("POST unknown procedure = %d, want 404", status)
+	}
+	if status, body := do(http.MethodGet, "/healthz", "", ""); status != http.StatusOK || body != "ok\n" {
+		t.Errorf("GET /healthz = %d %q", status, body)
+	}
+
+	// The app: the build when `make web` has run, else the notice saying so.
+	for _, path := range []string{"/", "/login", "/app/instances/some-id"} {
+		status, body := do(http.MethodGet, path, "", "")
+		if web.Built(web.Dist()) {
+			if status != http.StatusOK || !strings.Contains(body, `id="root"`) {
+				t.Errorf("GET %s = %d, want the index page", path, status)
+			}
+		} else if status != http.StatusServiceUnavailable || !strings.Contains(body, "make web") {
+			t.Errorf("GET %s = %d %q, want the not-built notice", path, status, body)
+		}
 	}
 }

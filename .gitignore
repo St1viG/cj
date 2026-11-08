@@ -12,7 +12,10 @@ coverage.*
 
 # JavaScript
 node_modules/
-/web/dist/
+# The web build is embedded into the Go binary (web/embed.go). Only the empty
+# placeholder that keeps the directory is tracked, so `go build` needs no Node.
+/web/dist/*
+!/web/dist/.gitkeep
 
 # Guest images built locally (P1.6)
 /deploy/images/dist/
