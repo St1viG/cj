@@ -20,7 +20,9 @@ import (
 	"github.com/St1viG/cj/internal/controlplane/accounts"
 	"github.com/St1viG/cj/internal/controlplane/api"
 	"github.com/St1viG/cj/internal/controlplane/controller"
+	"github.com/St1viG/cj/internal/controlplane/enrollment"
 	"github.com/St1viG/cj/internal/controlplane/events"
+	"github.com/St1viG/cj/internal/controlplane/pki"
 	"github.com/St1viG/cj/internal/controlplane/scheduler"
 	"github.com/St1viG/cj/internal/store"
 	"github.com/St1viG/cj/internal/store/db"
@@ -42,9 +44,30 @@ type env struct {
 	sched   *triggerCount
 	keyA    string // customer in org acme
 	keyB    string // customer in org other
-	keyP    string // partner user
+	keyP    string // partner user of demo-dc
+	keyO    string // operator
 	orgB    db.Org
 	instCtl *controller.InstanceController
+	gw      *fakeGateway
+	partner db.User
+	oper    db.User
+}
+
+type fakeGateway struct {
+	mu        sync.Mutex
+	connected map[uuid.UUID]bool
+}
+
+func (g *fakeGateway) Connected(id uuid.UUID) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.connected[id]
+}
+
+func (g *fakeGateway) set(id uuid.UUID, up bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.connected[id] = up
 }
 
 type triggerCount struct {
@@ -101,10 +124,31 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e.keyP = newKey(t, s, partnerOrg, partnerUser)
+	e.partner = partnerUser
+
+	opOrg, err := s.UpsertOrg(ctx, db.UpsertOrgParams{Name: "kondukter", Kind: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.oper, err = s.UpsertUser(ctx, db.UpsertUserParams{Email: "operator@demo.local", PasswordHash: accounts.HashPassword("operator-pass")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembership(ctx, db.AddMembershipParams{OrgID: opOrg.ID, UserID: e.oper.ID}); err != nil {
+		t.Fatal(err)
+	}
+	e.keyO = newKey(t, s, opOrg, e.oper)
+	ca, err := pki.LoadOrCreate(ctx, s, "api test master key 0123456789")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.gw = &fakeGateway{connected: map[uuid.UUID]bool{}}
 
 	e.instCtl = &controller.InstanceController{Store: s, Log: quiet, Hooks: controller.Hooks{InstanceChanged: e.bus.Publish}}
 	a := api.New(s, quiet, e.bus, e.sched, e.instCtl)
 	a.WatchRefresh = 100 * time.Millisecond
+	a.Enrollment = enrollment.New(s, ca, "gw.test:8443", "http://api.test")
+	a.Gateway = e.gw
 	mux := http.NewServeMux()
 	a.Mount(mux)
 	srv := httptest.NewServer(mux)
@@ -183,10 +227,6 @@ func TestAuthentication(t *testing.T) {
 	// A partner user cannot run instances.
 	if _, err := e.instances().ListInstances(ctx, authed(e.keyP, &apiv1.ListInstancesRequest{})); code(err) != connect.CodePermissionDenied {
 		t.Fatalf("partner ListInstances = %v, want PermissionDenied", err)
-	}
-	// Sessions come with P3.8.
-	if _, err := e.auth().Login(ctx, connect.NewRequest(&apiv1.LoginRequest{})); code(err) != connect.CodeUnimplemented {
-		t.Fatalf("Login = %v, want Unimplemented", err)
 	}
 }
 

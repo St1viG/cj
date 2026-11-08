@@ -61,7 +61,12 @@ type Token struct {
 
 // CreateToken creates a one-time token for siteID. Only its hash is stored.
 func (s *Service) CreateToken(ctx context.Context, siteID uuid.UUID, createdBy *uuid.UUID) (Token, error) {
-	if _, err := s.store.GetSite(ctx, siteID); err != nil {
+	return s.CreateTokenTx(ctx, s.store.Queries, siteID, createdBy)
+}
+
+// CreateTokenTx is CreateToken on q, e.g. inside the caller's transaction.
+func (s *Service) CreateTokenTx(ctx context.Context, q *db.Queries, siteID uuid.UUID, createdBy *uuid.UUID) (Token, error) {
+	if _, err := q.GetSite(ctx, siteID); err != nil {
 		return Token{}, fmt.Errorf("site %s: %w", siteID, store.NotFound(err))
 	}
 	raw := make([]byte, 32)
@@ -70,7 +75,7 @@ func (s *Service) CreateToken(ctx context.Context, siteID uuid.UUID, createdBy *
 	}
 	plain := TokenPrefix + base64.RawURLEncoding.EncodeToString(raw)
 	expires := s.now().Add(TokenTTL).UTC()
-	if _, err := s.store.CreateEnrollmentToken(ctx, db.CreateEnrollmentTokenParams{
+	if _, err := q.CreateEnrollmentToken(ctx, db.CreateEnrollmentTokenParams{
 		SiteID: siteID, TokenHash: hash(plain), CreatedBy: createdBy, ExpiresAt: expires,
 	}); err != nil {
 		return Token{}, err

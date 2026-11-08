@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -24,6 +25,17 @@ type Principal struct {
 	Role apiv1.Role
 	// APIKeyID is set when the caller authenticated with an API key.
 	APIKeyID *uuid.UUID
+	// SessionID is set when the caller authenticated with a session cookie.
+	SessionID *uuid.UUID
+}
+
+// PartnerScope is the partner whose sites the caller may see: its own for
+// a partner user, nil (every partner) for an operator.
+func (p Principal) PartnerScope() *uuid.UUID {
+	if p.Role == apiv1.Role_ROLE_OPERATOR {
+		return nil
+	}
+	return p.Org.PartnerID
 }
 
 type principalKey struct{}
@@ -71,6 +83,8 @@ var public = map[string]bool{
 // service that is not listed is open to every authenticated caller.
 var roles = map[string][]apiv1.Role{
 	"/" + apiv1connect.InstanceServiceName + "/": {apiv1.Role_ROLE_CUSTOMER},
+	"/" + apiv1connect.PartnerServiceName + "/":  {apiv1.Role_ROLE_PARTNER, apiv1.Role_ROLE_OPERATOR},
+	"/" + apiv1connect.AdminServiceName + "/":    {apiv1.Role_ROLE_OPERATOR},
 }
 
 func allowed(procedure string, r apiv1.Role) bool {
@@ -83,18 +97,48 @@ func allowed(procedure string, r apiv1.Role) bool {
 }
 
 var (
-	errNoCredentials = errors.New("missing credentials: send Authorization: Bearer kdk_…")
+	errNoCredentials = errors.New("missing credentials: send Authorization: Bearer kdk_… or log in")
 	errBadAPIKey     = errors.New("invalid or revoked API key")
+	errBadSession    = errors.New("session expired or logged out")
 )
 
-// Authenticator resolves request credentials to a Principal. API keys only
-// for now; sessions arrive with AuthService.Login (P3.8).
+// SessionCookie holds the browser session token (ADR-0021).
+const SessionCookie = "kdk_session"
+
+// DefaultSessionTTL is how long an idle session lasts; every use extends it.
+const DefaultSessionTTL = 12 * time.Hour
+
+// Authenticator resolves request credentials to a Principal: an API key in
+// the Authorization header, or else a session cookie.
 type Authenticator struct {
 	Store *store.Store
+	// SessionTTL is the sliding session lifetime; DefaultSessionTTL if zero.
+	SessionTTL time.Duration
+}
+
+func (a Authenticator) sessionTTL() time.Duration {
+	if a.SessionTTL > 0 {
+		return a.SessionTTL
+	}
+	return DefaultSessionTTL
+}
+
+// sessionToken reads the session cookie from h.
+func sessionToken(h http.Header) string {
+	c, err := (&http.Request{Header: h}).Cookie(SessionCookie)
+	if err != nil {
+		return ""
+	}
+	return c.Value
 }
 
 // Authenticate checks the request headers.
 func (a Authenticator) Authenticate(ctx context.Context, h http.Header) (Principal, error) {
+	if h.Get("Authorization") == "" {
+		if tok := sessionToken(h); tok != "" {
+			return a.session(ctx, tok)
+		}
+	}
 	scheme, token, ok := strings.Cut(h.Get("Authorization"), " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
 		return Principal{}, connect.NewError(connect.CodeUnauthenticated, errNoCredentials)
@@ -115,6 +159,21 @@ func (a Authenticator) Authenticate(ctx context.Context, h http.Header) (Princip
 	}
 	id := row.ApiKeyID
 	return Principal{User: row.User, Org: row.Org, Role: RoleOf(row.Org), APIKeyID: &id}, nil
+}
+
+func (a Authenticator) session(ctx context.Context, token string) (Principal, error) {
+	row, err := a.Store.GetPrincipalBySessionHash(ctx, accounts.HashSecret(token))
+	if err != nil {
+		if errors.Is(store.NotFound(err), store.ErrNotFound) {
+			return Principal{}, connect.NewError(connect.CodeUnauthenticated, errBadSession)
+		}
+		return Principal{}, connect.NewError(connect.CodeUnavailable, errors.New("cannot check credentials"))
+	}
+	if err := a.Store.TouchSession(ctx, db.TouchSessionParams{ID: row.SessionID, ExpiresAt: time.Now().Add(a.sessionTTL())}); err != nil {
+		return Principal{}, connect.NewError(connect.CodeUnavailable, errors.New("cannot check credentials"))
+	}
+	id := row.SessionID
+	return Principal{User: row.User, Org: row.Org, Role: RoleOf(row.Org), SessionID: &id}, nil
 }
 
 // Interceptor authenticates every non-public procedure and enforces the

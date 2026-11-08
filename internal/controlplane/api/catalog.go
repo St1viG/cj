@@ -37,6 +37,15 @@ func archs(shape db.Shape, images []db.Image) []string {
 	return out
 }
 
+func offerProto(o db.Offer, sh db.Shape, images []db.Image) *apiv1.Offer {
+	return &apiv1.Offer{
+		Id: o.ID.String(), Shape: shapeProto(sh), Region: o.Region,
+		CapacityClass: capacityClassProto(o.CapacityClass),
+		PricePerHour:  moneyProto(o.PricePerHourMinor, o.Currency),
+		Active:        o.Active, Archs: archs(sh, images),
+	}
+}
+
 func (h catalogHandler) ListOffers(ctx context.Context, req *connect.Request[apiv1.ListOffersRequest]) (*connect.Response[apiv1.ListOffersResponse], error) {
 	f := req.Msg
 	offers, err := h.Store.ListOffers(ctx)
@@ -62,12 +71,7 @@ func (h catalogHandler) ListOffers(ctx context.Context, req *connect.Request[api
 		case int64(f.GetMinVcpu()) > int64(sh.Vcpu):
 		case f.GetMinRamMib() > uint64(max(sh.RamMib, 0)):
 		default:
-			out.Offers = append(out.Offers, &apiv1.Offer{
-				Id: o.Offer.ID.String(), Shape: shapeProto(sh), Region: o.Offer.Region,
-				CapacityClass: capacityClassProto(o.Offer.CapacityClass),
-				PricePerHour:  moneyProto(o.Offer.PricePerHourMinor, o.Offer.Currency),
-				Active:        o.Offer.Active, Archs: as,
-			})
+			out.Offers = append(out.Offers, offerProto(o.Offer, sh, images))
 		}
 	}
 	return connect.NewResponse(out), nil
