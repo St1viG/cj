@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 21 of 45 items** (about 17.5 of 35 estimated sessions) · 7 partly done · 17 not started. Updated with every commit that finishes an item.
+**Done: 21 of 45 items** (about 17.5 of 35 estimated sessions) · 8 partly done · 16 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -55,7 +55,7 @@
 - [ ] P4.3 — Demo deployment of the control plane · *partly done: built and run on the development Mac; the checks from FED-D and on MAC-P wait for those hosts*
 - [ ] P4.4 — Enroll the fleet
 - [ ] P4.5 — Happy path on hardware
-- [ ] P4.6 — Failure path on hardware
+- [ ] P4.6 — Failure path on hardware · *partly done: `hack/demo-failure.sh` and the drill text pass against mock agents on the development Mac; the runs on the real fleet wait for the hosts*
 
 **P5 — Web app skeleton**
 - [x] P5.1 — Web scaffold, auth, routing, embedding
@@ -660,7 +660,31 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0012, ADR-0016
 - **Size:** M
 
-#### ☐ P4.6 — Failure path on hardware
+#### ◐ P4.6 — Failure path on hardware
+- **As built so far (2026-11-08):**
+  - **[`hack/demo-failure.sh`](../hack/demo-failure.sh)** has `agent-kill INSTANCE`, `cp-outage [SECONDS]`, `drain NODE` and `events INSTANCE`. Each drill signs in as the seeded accounts, causes the failure, polls the API with a timestamped line per change, and checks the criteria below. It exits non-zero on a failure.
+    - **Drill 1:**
+      - `UNREACHABLE` within 45 s;
+      - `instance_events` since the kill exactly `running → unreachable → running`;
+      - an SSH session that prints a line every second is never silent for more than 5 s. That check is skipped on mock nodes.
+      - The kill defaults to `ssh <host> 'sudo kill -9 $(pidof kondukter-agent)'`, and `KILL_CMD=manual` lets the presenter type it.
+    - **Drill 2:**
+      - SSH probes during the outage;
+      - the same nodes, instances, phases and placements throughout a 120 s watch after the restart, which is past the watchdog's 95 s restart grace;
+      - every `READY` node has reported since the restart;
+      - no `instance_events` since the stop;
+      - per `RUNNING` instance, metered usage with no gaps that covers the outage and matches `running_at` to the last period within 60 s.
+    - **Drill 3:**
+      - drain as the partner;
+      - a `cpu-2x2` instance created as the customer must reach `RUNNING` on another node of the drained node's architecture;
+      - then the script terminates it and undrains the node. `KEEP=1` keeps both.
+  - The helpers it shares with `demo.sh` (`rpc`, `login`, `compose`, the env file and ports) moved to `hack/demo-lib.sh`.
+  - **[`docs/DEMO.md`](DEMO.md)** begins with the drill text: setup, the timeline, checks, what to say, overrides, results. P6.1 adds the rest of the run sheet.
+  - Drill 2 depends on the watchdog's restart grace from 80fcfec. Without it, a restarted control plane marked nodes `UNREACHABLE` while their agents were still in reconnect backoff.
+  - **Verified on the development Mac** with two mock-driver agents and a separate compose project. A supervisor loop stood in for systemd's `RestartSec=60`.
+    - All three drills pass: drill 1 went `UNREACHABLE` at 37 s and `RUNNING` again at 61 s; in drill 2, usage was off by 0–1 s after a 120 s outage.
+    - A negative drill 2, with one agent stopped for good, fails as it should.
+  - **Left:** two passes of each drill on the real fleet, after P4.4 and P4.5.
 - **Goal:** The resilience story is real, not slides.
 - **Deliverables:** `hack/demo-failure.sh` plus the drill text that P6.1 folds into `docs/DEMO.md`. **Drill 1:** with a GPU instance `RUNNING` and an SSH session open, `sudo kill -9 $(pidof kondukter-agent)` on FED-D → `kctl watch` shows `UNREACHABLE` within 45 s → systemd restarts the agent → `RUNNING` again, the SSH session never dropped. **Drill 2:** `docker compose stop kondukter` for two minutes → VMs keep serving SSH, agents log buffered usage → `docker compose start kondukter` → nodes `READY`, no duplicate VMs, usage minutes continuous. **Drill 3:** `kctl drain <mac-node>` → a new `cpu-2x2` lands on the other Mac; undrain.
 - **Acceptance criteria:** All three drills pass on the real fleet twice; `instance_events` shows `RUNNING → UNREACHABLE → RUNNING` for drill 1 and no spurious transitions for drill 2; usage after drill 2 matches wall-clock running time within one minute.
@@ -772,10 +796,10 @@ Not scheduled. Collected so nothing is forgotten.
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+1 partly) |
+| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+2 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 2 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **21 (+7 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **21 (+8 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
