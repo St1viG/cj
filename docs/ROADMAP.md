@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 17 of 45 items** (about 14 of 35 estimated sessions) · 4 partly done · 24 not started. Updated with every commit that finishes an item.
+**Done: 17 of 45 items** (about 14 of 35 estimated sessions) · 5 partly done · 23 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -20,7 +20,7 @@
 - [ ] P1.1 — S1: libvirt from pure Go on Fedora
 - [ ] P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
 - [ ] P1.3 — S2b: VFIO passthrough of the laptop RTX (FED-L)
-- [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac
+- [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac · *partly done: spike run and findings written; SSH from another tailnet machine waits for a second Mac*
 - [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
 - [ ] P1.6 — S5: GPU guest image build
 - [ ] P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
@@ -274,13 +274,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** D-29, D-30, D-35 (ADR-0012)
 - **Size:** M
 
-#### ☐ P1.4 — S3: Lima `vz` on an 8 GB Mac
+#### ◐ P1.4 — S3: Lima `vz` on an 8 GB Mac
 - **Goal:** Confirm Lima can be driven non-interactively as the macOS driver within the 8 GB budget.
 - **Deliverables:** `docs/spikes/S3-lima-vz-8gb-mac.md`; `hack/s3/kdk.yaml` Lima template: `vmType: vz`, arm64 Ubuntu 24.04 cloud image by URL + digest, `cpus: 2`, `memory: 2GiB`, `disk: 20GiB`, no mounts, containerd disabled, a `provision` script (mode `system`) appending a customer public key to the `ubuntu` user's `authorized_keys`, `portForwards: [{guestPort: 22, hostPort: 40001, hostIP: "0.0.0.0"}]`. Commands exercised on MAC-A: `limactl create --name kdk-test --tty=false`, `limactl start`, `limactl list --json`, `limactl stop`, `limactl delete --force`.
 - **Acceptance criteria:** From MAC-P, `ssh -p 40001 ubuntu@<MAC-A tailnet ip>` works with the customer key; the findings list the `limactl list --json` fields used to derive `Observed` (status, name, ports); cold (image download) and cached create-to-SSH times recorded; `kill -9` of the Lima hostagent then `limactl start` recovers the same VM, or the findings say what breaks; memory pressure with one 2 GiB VM on 8 GB judged acceptable.
 - **Depends on:** P0.2
 - **Decisions required:** D-31, D-33 (ADR-0012, ADR-0020)
 - **Size:** S
+- **As run (2026-11-08):** on an 8 GB M1 MacBook Air with Lima 2.3.0; findings in [S3-lima-vz-8gb-mac.md](spikes/S3-lima-vz-8gb-mac.md). The non-interactive lifecycle, key injection, `list --json` fields, timings (cold 71 s, cached 21 s from create to customer SSH), `kill -9` of the host agent (the same VM comes back, rebooted) and memory (acceptable) are all answered. Lima rejects a forward of guest port 22, so the template forwards guest 2222 and the customer's sshd also listens there. Two catch-all `ignore` rules stop Lima forwarding every guest listener to the host's loopback. Open issue for P1.7: the guest reaches the node's loopback, LAN and tailnet (finding 3). **Open:** SSH from MAC-P to the Mac node over the tailnet; it was only checked through this Mac's own tailnet address.
 
 #### ☐ P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
 - **Goal:** Remove any doubt about the transport before the agent is built.
@@ -660,13 +661,13 @@ Not scheduled. Collected so nothing is forgotten.
 | Phase | Items | M | S | Sessions | Done |
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
-| P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
+| P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+3 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **17 (+4 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **17 (+5 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
