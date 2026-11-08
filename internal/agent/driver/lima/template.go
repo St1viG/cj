@@ -1,0 +1,261 @@
+package lima
+
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/St1viG/cj/internal/agent/driver"
+)
+
+// SSHGuestPort is where the customer's SSH listens. Lima keeps guest port
+// 22 for its own management SSH and refuses any forward of it, so the
+// mapping for 22 forwards this port instead (spike S3, finding 1).
+const SSHGuestPort = 2222
+
+// ParamInstance is the template parameter that marks a Lima instance as
+// Kondukter's: `limactl create` writes it into the instance's lima.yaml in
+// the same step that creates it, so no instance exists without it.
+const ParamInstance = "KONDUKTER_INSTANCE"
+
+var (
+	idRe       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,62}$`)
+	hostnameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+	digestRe   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+)
+
+type template struct {
+	VMType            string        `yaml:"vmType"`
+	Arch              string        `yaml:"arch"`
+	Images            []image       `yaml:"images"`
+	CPUs              int           `yaml:"cpus"`
+	Memory            string        `yaml:"memory"`
+	Disk              string        `yaml:"disk"`
+	Mounts            []struct{}    `yaml:"mounts"`
+	Containerd        containerd    `yaml:"containerd"`
+	SSH               ssh           `yaml:"ssh"`
+	PropagateProxyEnv bool          `yaml:"propagateProxyEnv"`
+	Param             param         `yaml:"param"`
+	Provision         []provision   `yaml:"provision"`
+	PortForwards      []portForward `yaml:"portForwards"`
+}
+
+type image struct {
+	Location string `yaml:"location"`
+	Arch     string `yaml:"arch"`
+	Digest   string `yaml:"digest"`
+}
+
+type containerd struct {
+	System bool `yaml:"system"`
+	User   bool `yaml:"user"`
+}
+
+type ssh struct {
+	// LoadDotSSHPubKeys false keeps the operator's own keys out of the
+	// guest; only Lima's generated key reaches its management user.
+	LoadDotSSHPubKeys bool `yaml:"loadDotSSHPubKeys"`
+	ForwardAgent      bool `yaml:"forwardAgent"`
+}
+
+type param struct {
+	Instance string `yaml:"KONDUKTER_INSTANCE"`
+}
+
+type provision struct {
+	Mode   string `yaml:"mode"`
+	Script string `yaml:"script"`
+}
+
+type portForward struct {
+	GuestIP   string `yaml:"guestIP,omitempty"`
+	GuestPort int    `yaml:"guestPort,omitempty"`
+	HostIP    string `yaml:"hostIP,omitempty"`
+	HostPort  int    `yaml:"hostPort,omitempty"`
+	Proto     string `yaml:"proto"`
+	Ignore    bool   `yaml:"ignore,omitempty"`
+}
+
+// Validate checks that the spec is something this driver can run.
+func Validate(spec driver.InstanceSpec, hostArch string) error {
+	switch {
+	case !idRe.MatchString(spec.ID):
+		return fmt.Errorf("lima: instance id %q: want letters, digits and dashes, at most 63", spec.ID)
+	case len(spec.AcceleratorIDs) > 0:
+		return fmt.Errorf("%w: lima nodes attach no accelerators", driver.ErrUnsupported)
+	case spec.Image.Arch != "" && spec.Image.Arch != hostArch:
+		return fmt.Errorf("%w: image %s is %s, this node is %s", driver.ErrUnsupported, spec.Image.Name, spec.Image.Arch, hostArch)
+	case spec.Image.URL == "":
+		return fmt.Errorf("lima: image %s has no URL", spec.Image.Name)
+	case !digestRe.MatchString(spec.Image.Digest):
+		return fmt.Errorf("lima: image %s: digest %q is not sha256:<hex>", spec.Image.Name, spec.Image.Digest)
+	case spec.VCPU < 1 || spec.RAMMiB < 1 || spec.DiskGiB < 1:
+		return fmt.Errorf("lima: %d vCPU, %d MiB, %d GiB: every size must be positive", spec.VCPU, spec.RAMMiB, spec.DiskGiB)
+	case len(spec.UserData) > 0 && !bytes.HasPrefix(spec.UserData, []byte("#!")):
+		return fmt.Errorf("%w: user-data on lima nodes must be a script starting with #!, not cloud-config", driver.ErrUnsupported)
+	}
+	for _, m := range spec.PortMappings {
+		if m.GuestPort == SSHGuestPort {
+			return fmt.Errorf("%w: guest port %d is reserved for SSH on lima nodes", driver.ErrUnsupported, SSHGuestPort)
+		}
+	}
+	return nil
+}
+
+// Render returns the Lima template for spec (ADR-0020, spike S3): a vz VM
+// from the image by URL and digest, nothing shared with the host, the
+// customer's keys for the ubuntu user, SSH also on 2222, the allocated
+// forwards and then two catch-all ignore rules, so no other guest port
+// reaches the host's loopback. Lima runs provision scripts again, for
+// example after a restart, so the script is idempotent.
+func Render(spec driver.InstanceSpec, hostArch string) ([]byte, error) {
+	if err := Validate(spec, hostArch); err != nil {
+		return nil, err
+	}
+	t := template{
+		VMType:       "vz",
+		Arch:         limaArch(hostArch),
+		Images:       []image{{Location: spec.Image.URL, Arch: limaArch(hostArch), Digest: spec.Image.Digest}},
+		CPUs:         spec.VCPU,
+		Memory:       fmt.Sprintf("%dMiB", spec.RAMMiB),
+		Disk:         fmt.Sprintf("%dGiB", spec.DiskGiB),
+		Mounts:       []struct{}{},
+		Param:        param{Instance: spec.ID},
+		Provision:    []provision{{Mode: "system", Script: script(spec)}},
+		PortForwards: forwards(spec.PortMappings),
+	}
+	var b bytes.Buffer
+	b.WriteString("# Generated by kondukter-agent for instance " + spec.ID + " (ADR-0020); do not edit.\n")
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(t); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+func limaArch(goarch string) string {
+	switch goarch {
+	case "arm64":
+		return "aarch64"
+	case "amd64":
+		return "x86_64"
+	}
+	return goarch
+}
+
+// forwards renders the allocations first and the two ignore rules last.
+// Rules match first-wins; the default guestIP 127.0.0.1 matches loopback
+// binds and 0.0.0.0 the wildcard ones, so both are needed (S3 finding 2).
+func forwards(ms []driver.PortMapping) []portForward {
+	ms = slices.Clone(ms)
+	slices.SortFunc(ms, func(a, b driver.PortMapping) int { return a.HostPort - b.HostPort })
+	var out []portForward
+	for _, m := range ms {
+		guest := m.GuestPort
+		if guest == 22 && m.Protocol != driver.UDP {
+			guest = SSHGuestPort
+		}
+		proto := "tcp"
+		if m.Protocol == driver.UDP {
+			proto = "udp"
+		}
+		out = append(out, portForward{GuestPort: guest, HostIP: "0.0.0.0", HostPort: m.HostPort, Proto: proto})
+	}
+	return append(out,
+		portForward{GuestIP: "127.0.0.1", Proto: "any", Ignore: true},
+		portForward{GuestIP: "0.0.0.0", Proto: "any", Ignore: true},
+	)
+}
+
+// script is the system provision script. Lima expands Go templates in
+// provision scripts, so customer data goes in base64 (no braces) and the
+// only template action is the instance id parameter.
+func script(spec driver.InstanceSpec) string {
+	hostname := spec.Hostname
+	if !hostnameRe.MatchString(hostname) {
+		hostname = "kdk-" + strings.TrimRight(strings.ToLower(spec.ID[:min(8, len(spec.ID))]), "-")
+	}
+	keys := base64.StdEncoding.EncodeToString([]byte(strings.Join(spec.SSHKeys, "\n") + "\n"))
+	var s strings.Builder
+	s.WriteString(`#!/bin/sh
+# Kondukter customer VM setup; Lima may run it again, so it is idempotent.
+set -eu
+mkdir -p /etc/kondukter /var/lib/kondukter
+echo '{{.Param.KONDUKTER_INSTANCE}}' > /etc/kondukter/instance-id
+hostnamectl set-hostname '` + hostname + `' || true
+grep -q '[[:space:]]` + hostname + `$' /etc/hosts || echo '127.0.1.1 ` + hostname + `' >> /etc/hosts
+
+# The customer logs in as ubuntu with their keys; keys they add later stay.
+id ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo ubuntu
+install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+ak=/home/ubuntu/.ssh/authorized_keys
+touch "$ak"
+echo '` + keys + `' | base64 -d | while IFS= read -r k; do
+  [ -n "$k" ] || continue
+  grep -qxF -- "$k" "$ak" || printf '%s\n' "$k" >> "$ak"
+done
+chown ubuntu:ubuntu "$ak"
+chmod 600 "$ak"
+echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-kdk-ubuntu
+chmod 440 /etc/sudoers.d/90-kdk-ubuntu
+
+# Lima keeps guest port 22 for itself; the customer's SSH is on 2222, which
+# the node forwards: its own socket, one sshd -i per connection, so Lima's
+# ssh.socket is never restarted under Lima's own connection.
+cat > /etc/systemd/system/kdk-sshd.socket <<'EOF'
+[Unit]
+Description=Kondukter customer SSH on port 2222
+
+[Socket]
+ListenStream=0.0.0.0:2222
+Accept=yes
+
+[Install]
+WantedBy=sockets.target
+EOF
+cat > /etc/systemd/system/kdk-sshd@.service <<'EOF'
+[Unit]
+Description=Kondukter customer SSH connection
+
+[Service]
+ExecStart=-/usr/sbin/sshd -i
+StandardInput=socket
+StandardError=journal
+RuntimeDirectory=sshd
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+EOF
+systemctl daemon-reload
+systemctl enable --now kdk-sshd.socket
+`)
+	if len(spec.UserData) > 0 {
+		ud := base64.StdEncoding.EncodeToString(spec.UserData)
+		s.WriteString(`
+# The customer's user-data script, once, in the background so a long script
+# does not hold up the start; its output is in the journal.
+if [ ! -e /var/lib/kondukter/user-data.started ]; then
+  echo '` + ud + `' | base64 -d > /var/lib/kondukter/user-data
+  chmod 700 /var/lib/kondukter/user-data
+  touch /var/lib/kondukter/user-data.started
+  systemd-run --unit=kondukter-user-data --no-block /var/lib/kondukter/user-data
+fi
+`)
+	}
+	s.WriteString(`
+# Lima reports the VM ready once this script ends. Flush what it and the
+# first boot wrote (the SSH host keys among it): a hard power-off within
+# about 30 s of a write can otherwise leave the file empty, and with empty
+# host keys sshd refuses to start, for Lima and the customer alike.
+sync
+`)
+	return s.String()
+}
