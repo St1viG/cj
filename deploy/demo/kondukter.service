@@ -1,0 +1,26 @@
+# The Kondukter control plane for the single-box demo (roadmap P4.3 on one
+# machine): the public API on :8080 and the agent gateway on loopback :8443.
+# Postgres runs in docker (deploy/compose); the demo.env file holds the
+# settings. install.sh puts this in /etc/systemd/system.
+[Unit]
+Description=Kondukter control plane (demo)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/kondukter-demo/demo.env
+ExecStart=/usr/local/bin/kondukter serve
+# Postgres may still be starting after a boot: serve migrates first and exits
+# if it cannot connect, and systemd tries again.
+Restart=always
+RestartSec=3
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
