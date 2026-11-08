@@ -20,7 +20,9 @@ func capabilitiesProto(c driver.Capabilities) *agentv1.Capabilities {
 	}
 }
 
-func inventoryProto(inv driver.Inventory, cfg config.Config) *agentv1.Inventory {
+// InventoryProto converts discovered resources plus the config's
+// reservations, labels and advertise address into the protocol message.
+func InventoryProto(inv driver.Inventory, cfg config.Config) *agentv1.Inventory {
 	out := &agentv1.Inventory{
 		Hostname: inv.Hostname,
 		Arch:     inv.Arch,

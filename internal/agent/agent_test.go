@@ -10,12 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	agentv1 "github.com/St1viG/cj/gen/go/kondukter/agent/v1"
 	"github.com/St1viG/cj/internal/agent"
 	"github.com/St1viG/cj/internal/agent/config"
+	"github.com/St1viG/cj/internal/agent/driver"
+	"github.com/St1viG/cj/internal/agent/driver/mock"
 	"github.com/St1viG/cj/internal/logging"
 	"github.com/St1viG/cj/internal/simulator/stubgw"
 )
@@ -232,4 +235,105 @@ func TestDesiredFileEditConverges(t *testing.T) {
 	waitUntil("i-1 deleted", func() bool {
 		return phase("i-1") == agentv1.Phase_PHASE_DELETED && !strings.Contains(onHost(), `"id": "i-1"`)
 	})
+}
+
+// switchable reports its accelerator healthy until flipped.
+type switchable struct {
+	driver.Driver
+	unhealthy atomic.Bool
+}
+
+func (s *switchable) Inventory(ctx context.Context) (driver.Inventory, error) {
+	inv, err := s.Driver.Inventory(ctx)
+	if err == nil && s.unhealthy.Load() {
+		for i := range inv.Accelerators {
+			inv.Accelerators[i].Health, inv.Accelerators[i].HealthReason = driver.HealthUnavailable, "bound to nvidia, not vfio-pci"
+		}
+	}
+	return inv, err
+}
+
+func TestInventoryResentOnChange(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		invs []*agentv1.Inventory
+	)
+	srv := stubgw.New(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv.OnMessage = func(_ string, m *agentv1.AgentMessage) {
+		if inv := m.GetInventory(); inv != nil {
+			mu.Lock()
+			invs = append(invs, inv)
+			mu.Unlock()
+		}
+	}
+	tlsCfg, _ := stubgw.SelfSignedTLS("127.0.0.1")
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := srv.NewGRPCServer(tlsCfg)
+	go func() { _ = g.Serve(lis) }()
+	defer g.Stop()
+
+	cfg, err := config.Load("config/testdata/mock.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DataDir, cfg.Gateway = t.TempDir(), lis.Addr().String()
+	m, err := mock.New(cfg.Mock, mock.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drv := &switchable{Driver: m}
+	log, _ := logging.New(io.Discard, "info")
+	a, err := agent.New(cfg, log, agent.Options{InsecureDev: true, Driver: drv, InventoryCheck: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+		_ = a.Close()
+	}()
+
+	count := func() (int, *agentv1.Inventory) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(invs) == 0 {
+			return 0, nil
+		}
+		return len(invs), invs[len(invs)-1]
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for n, _ := count(); n == 0; n, _ = count() {
+		if time.Now().After(deadline) {
+			t.Fatal("no inventory at Hello")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond) // several unchanged checks
+	if n, _ := count(); n != 1 {
+		t.Fatalf("unchanged inventory was resent: %d messages", n)
+	}
+
+	drv.unhealthy.Store(true)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		n, last := count()
+		if n == 2 {
+			if last.GetAccelerators()[0].GetHealth() != agentv1.AcceleratorHealth_ACCELERATOR_HEALTH_UNAVAILABLE {
+				t.Fatalf("resent inventory = %v", last)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("changed inventory not resent (%d messages)", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
