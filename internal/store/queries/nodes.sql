@@ -96,3 +96,17 @@ WHERE node_id = $1 AND local_id = $2;
 
 -- name: DeleteAccelerator :exec
 DELETE FROM accelerators WHERE node_id = $1 AND local_id = $2;
+
+-- name: ListSilentReadyNodesForUpdate :many
+-- Heartbeat watchdog: READY nodes not heard from since the cutoff.
+SELECT * FROM nodes
+WHERE status = 'ready' AND coalesce(last_seen_at, created_at) < @cutoff::timestamptz
+ORDER BY id
+FOR UPDATE SKIP LOCKED;
+
+-- name: ListEmptyDrainingNodesForUpdate :many
+SELECT n.* FROM nodes n
+WHERE n.status = 'draining'
+  AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.node_id = n.id AND a.released_at IS NULL)
+ORDER BY n.id
+FOR UPDATE SKIP LOCKED;

@@ -6,12 +6,77 @@
 
 ---
 
+## Progress
+
+**Done: 10 of 45 items** (about 8 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
+
+**P0 — Foundations**
+- [x] P0.1 — Planning outputs in place
+- [x] P0.2 — Toolchain and repo skeleton
+- [x] P0.3 — Protobuf contract v1 and codegen
+- [ ] P0.4 — Compose stack and CI · *partly done: CI has not run yet, it needs the branch pushed to GitHub*
+
+**P1 — Spikes**
+- [ ] P1.1 — S1: libvirt from pure Go on Fedora
+- [ ] P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
+- [ ] P1.3 — S2b: VFIO passthrough of the laptop RTX (FED-L)
+- [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac
+- [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
+- [ ] P1.6 — S5: GPU guest image build
+- [ ] P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
+
+**P2 — Agent v0**
+- [x] P2.1 — Agent skeleton, config, local store, driver interface
+- [x] P2.2 — Stub gateway and stream client
+- [x] P2.3 — Mock driver and reconcile loop
+- [ ] P2.4 — Inventory · *partly done: the GPU check on FED-D waits for that host*
+- [ ] P2.5 — libvirt driver
+- [ ] P2.6 — Lima driver
+- [ ] P2.7 — Access module (port-map)
+- [ ] P2.8 — Metering outbox and crash safety
+- [ ] P2.9 — Agent packaging
+
+**P3 — Kondukter v0**
+- [x] P3.1 — Schema, migrations, store layer
+- [x] P3.2 — Node identity: CA, enrollment, mTLS gateway listener
+- [x] P3.3 — Agent gateway
+- [x] P3.4 — Node lifecycle and demo catalog
+- [ ] P3.5 — Scheduler
+- [ ] P3.6 — Instance controller
+- [ ] P3.7 — Public API core and API-key auth
+- [ ] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
+- [ ] P3.9 — `kctl` CLI
+- [ ] P3.10 — Fleet simulator and chaos tests
+- [ ] P3.11 — Usage and estimated cost
+
+**P4 — Real fleet end-to-end (CLI)**
+- [ ] P4.1 — Fedora GPU node bootstrap
+- [ ] P4.2 — Mac node bootstrap
+- [ ] P4.3 — Demo deployment of the control plane
+- [ ] P4.4 — Enroll the fleet
+- [ ] P4.5 — Happy path on hardware
+- [ ] P4.6 — Failure path on hardware
+
+**P5 — Web app skeleton**
+- [ ] P5.1 — Web scaffold, auth, routing, embedding
+- [ ] P5.2 — Customer pages (contents only)
+- [ ] P5.3 — Partner pages
+- [ ] P5.4 — Operator pages
+- [ ] P5.5 — Stage view data
+
+**P6 — Showcase**
+- [ ] P6.1 — Demo script
+- [ ] P6.2 — Pre-flight checklist and reset
+- [ ] P6.3 — Dress rehearsals and tag
+
+---
+
 ## 0. How to read this
 
 - Items follow SPEC §21.2: **Goal · Deliverables · Acceptance criteria · Depends on · Decisions required · Size**.
 - **Size:** S = at most half an implementation session, M = one session. L does not exist; anything bigger was split.
 - Every item leaves the repo green (`make build test lint`). Decision gates are items. Spikes are time-boxed to one session and end with a written findings file whatever the outcome.
-- Status marks in headings: ☐ not started · ◐ in progress · ☑ done.
+- Status: the [Progress](#progress) checklist at the top is the summary. Item headings repeat it as ☐ not started · ◐ partly done · ☑ done.
 - Hardware legend used throughout:
 
 | Tag | Machine | Role in the demo |
@@ -356,13 +421,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** Snapshots are built in a repeatable-read, read-only transaction so the generation always matches the instance list. Spec, image ref and ports come from `instances.spec` (`store.InstanceSpec`, the jsonb model shared with P3.7); accelerator ids come from active allocations. Hello moves `enrolling`/`unreachable` nodes to `ready`, records version and driver, and ingests `Hello.observed`. If the agent's last applied generation is ahead of `desired_generation` (a re-enrolled node keeping an old local store), the generation jumps past it; otherwise the agent would ignore every snapshot. Each sequenced message is processed in its own transaction and acked after commit; an ingest error closes the stream, so nothing un-stored is acked. Status ingest ignores reports for instances not placed on the node, older than `instances.agent_status_at` (migration `00003`), or produced under a generation below `placement_generation`. It maps (current phase, reported phase) to events: RUNNING seen while still SCHEDULED is "applied, then running". Usage ingest checks ownership and idempotency in one `INSERT … SELECT … WHERE EXISTS … ON CONFLICT DO NOTHING`. Quarantined nodes are acked but not ingested (ADR-0024). `internal/controlplane/controller` already has the pure `(phase, event)` table and `Transition`, which writes the event row and handles the side effects of TERMINATING and terminal phases; P3.6 adds timers and the full edge tests. A second stream from a node aborts the first with `Aborted`. `gateway.Hooks.InstanceChanged` is the seam for P3.7's event bus. `kondukter serve` (`internal/controlplane/server`) migrates at startup, then serves the API (HTTP/1.1 + h2c, `/healthz`, EnrollmentService) and the mTLS gateway. It is configured from `KONDUKTER_*` env vars with flags overriding. `storetest.Place` does the scheduler's commit for tests.
 
-#### ☐ P3.4 — Node lifecycle and demo catalog
+#### ☑ P3.4 — Node lifecycle and demo catalog
 - **Goal:** Node states the scheduler can trust, and something to schedule.
 - **Deliverables:** `internal/controlplane/controller/node.go`: heartbeat watchdog every 10 s (`READY` nodes with `last_seen_at` older than three intervals plus 5 s → `UNREACHABLE`, and their non-terminal instances → `UNREACHABLE` through the instance controller); `DRAINING`, `MAINTENANCE`, `QUARANTINED`, `RETIRED` transitions as store functions used by the Partner and Admin services. `kondukter seed catalog`: region `demo`; shapes and offers from §1.3 (prices in EUR cents per hour); images `ubuntu-cpu` (amd64 and arm64 URLs + digests) and the GPU image variant(s) from S5 with `accel_stack` and compatible GPU models.
 - **Acceptance criteria:** Unit test with an injectable clock: a silent node is `UNREACHABLE` within 45 s and `READY` again on the next Hello. `seed catalog` is idempotent. After P3.7, `ListOffers` returns the seeded offers.
 - **Depends on:** P3.3
 - **Decisions required:** ADR-0025, ADR-0012, ADR-0015
 - **Size:** S
+- **As built (2026-11-08):** `controller/node.go` holds the node transition table (`NextNode`, `SetNodeStatus`, `ErrNodeTransition`) that the Partner and Admin services will call; `Schedulable` is true for `READY` only. `NodeWatchdog` sweeps every 10 s, locking rows `FOR UPDATE`: a `READY` node silent for longer than `HeartbeatGrace` (3 × 10 s + 5 s = 35 s) becomes `UNREACHABLE`, and its `RUNNING` instances become `UNREACHABLE` through the instance controller. `SCHEDULED` and `PROVISIONING` instances on that node are left to the provisioning timeout (P3.6), because SPEC §6.3 has no lost-node edge for them. The next Hello makes the node `READY`, and an agent status report of a running VM brings each instance back to `RUNNING`. The watchdog also moves a `DRAINING` node with no active allocations to `MAINTENANCE`. The catalog is `controlplane/catalog/demo.yaml`, embedded in the binary (`kondukter seed catalog --file` overrides it): region `demo`, shapes `cpu-2x2` (2 vCPU, 2 GiB, 20 GiB) and `gpu-gtx1060-1x` (4 vCPU, 8 GiB, 40 GiB, one GTX 1060 6GB), offers at 5 and 40 EUR cents per hour, and `ubuntu-cpu` 24.04 for amd64 and arm64 pinned to the Ubuntu `release-20261017` cloud images with their sha256 digests and sizes. The GPU image entry has no digest yet, so seeding skips it with a message until S5 produces it, and the RTX shape waits for S2b. `seed catalog` migrates first, then upserts; running it twice gives the same rows (verified against the compose database). Tests: the full node transition table, the watchdog with a fake clock (still `READY` at 34 s, `UNREACHABLE` at 36 s with its instance, `READY` again after Hello; worst-case detection is 35 s plus one 10 s sweep, inside the 45 s criterion), drain to maintenance and back, and catalog parsing and idempotent seeding.
 
 #### ☐ P3.5 — Scheduler
 - **Goal:** Correct placement under concurrency.
@@ -570,16 +636,16 @@ Not scheduled. Collected so nothing is forgotten.
 
 ## 5. Session order and totals
 
-| Phase | Items | M | S | Sessions |
-|---|---|---|---|---|
-| P0 Foundations | 4 | 1 | 3 | 2.5 |
-| P1 Spikes | 7 | 4 | 3 | 5.5 |
-| P2 Agent v0 | 9 | 6 | 3 | 7.5 |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 |
-| P5 Web app skeleton | 5 | 2 | 3 | 3.5 |
-| P6 Showcase | 3 | 1 | 2 | 2 |
-| **Total** | **45** | **25** | **20** | **35** |
+| Phase | Items | M | S | Sessions | Done |
+|---|---|---|---|---|---|
+| P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
+| P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
+| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+1 partly) |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 4 |
+| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
+| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
+| P6 Showcase | 3 | 1 | 2 | 2 | 0 |
+| **Total** | **45** | **25** | **20** | **35** | **10 (+2 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
