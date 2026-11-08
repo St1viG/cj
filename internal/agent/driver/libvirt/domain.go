@@ -1,125 +1,149 @@
+// Package libvirt is the Linux driver (ADR-0003, ADR-0019): one libvirt/QEMU
+// domain per instance, driven through the pure-Go go-libvirt binding, with
+// optional VFIO passthrough of NVIDIA GPUs. Spikes S1 and S2a ran this
+// arrangement on Fedora.
+//
+// Ownership (SPEC §7.8): a domain is Kondukter's when its name is
+// "kdk-<id>" and the <metadata> of its definition carries a kondukter
+// instance element whose id is <id>. Every other domain on the host,
+// including a "kdk-" one without the marker, is never listed, changed or
+// deleted.
 package libvirt
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"embed"
+	_ "embed"
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"strconv"
-	"strings"
 	"text/template"
+
+	"github.com/St1viG/cj/internal/agent/driver"
 )
 
-//go:embed templates/*.xml.tmpl
-var templateFS embed.FS
+// MetadataNS is the XML namespace of the marker element in a domain's
+// <metadata>.
+const MetadataNS = "urn:kondukter:instance:1"
 
-var templates = template.Must(template.New("").
-	Funcs(template.FuncMap{"xml": xmlEscape}).
-	ParseFS(templateFS, "templates/*.xml.tmpl"))
+// NetworkName is the libvirt network the guests attach to.
+const NetworkName = "kdk-net"
 
-// DomainParams are the inputs of templates/domain.xml.tmpl.
-type DomainParams struct {
-	Name       string
-	ID         string
-	Generation uint64
-	VCPU       int
-	RAMMiB     int64
-	// Disk, Seed and NVRAM are absolute paths of the overlay, the NoCloud
-	// ISO and the UEFI variables; libvirt copies OVMF's variable template
-	// to NVRAM on the first start.
-	Disk, Seed, NVRAM string
-	MAC               string
-	Network           string
-	// Hostdevs are the PCI functions to pass through.
-	Hostdevs []PCIAddress
-}
+//go:embed templates/domain.xml.tmpl
+var domainTmpl string
 
-// RenderDomain returns the domain XML (SPEC §9.3): q35 with UEFI (OVMF
-// picked by libvirt's firmware autoselection, Secure Boot off, NVRAM per
-// VM), host-passthrough CPU, the overlay on virtio-blk with discard, the
-// seed as a read-only SATA CD-ROM, virtio-net on the guest network, a
-// serial console and nothing else: no graphics, video, sound, USB or
-// balloon (VFIO pins guest memory anyway). Each hostdev is a managed VFIO
-// passthrough: libvirt binds it to vfio-pci, resets it and returns it.
-func RenderDomain(p DomainParams) (string, error) {
-	switch {
-	case !strings.HasPrefix(p.Disk, "/") || !strings.HasPrefix(p.Seed, "/") || !strings.HasPrefix(p.NVRAM, "/"):
-		return "", fmt.Errorf("libvirt: domain %s: file paths must be absolute", p.Name)
-	case p.VCPU < 1 || p.RAMMiB < 1:
-		return "", fmt.Errorf("libvirt: domain %s: %d vCPU, %d MiB", p.Name, p.VCPU, p.RAMMiB)
-	}
+var (
+	domainT = template.Must(template.New("domain").Funcs(template.FuncMap{"esc": xmlEscape}).Parse(domainTmpl))
+	idRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,62}$`)
+	pciRe   = regexp.MustCompile(`^([0-9a-f]{4}):([0-9a-f]{2}):([0-9a-f]{2})\.([0-7])$`)
+)
+
+func xmlEscape(s string) (string, error) {
 	var b bytes.Buffer
-	err := templates.ExecuteTemplate(&b, "domain.xml.tmpl", struct {
-		DomainParams
-		NS string
-	}{p, MetadataNS})
-	if err != nil {
-		return "", fmt.Errorf("libvirt: render domain: %w", err)
+	if err := xml.EscapeText(&b, []byte(s)); err != nil {
+		return "", err
 	}
 	return b.String(), nil
 }
 
-// Metadata is the ownership element in a domain's <metadata>.
-type Metadata struct {
-	XMLName    xml.Name `xml:"kondukter://libvirt/instance instance"`
-	ID         string   `xml:"kondukter://libvirt/instance id"`
-	Generation uint64   `xml:"kondukter://libvirt/instance generation"`
+// DomainName is the libvirt domain name of a Kondukter instance.
+func DomainName(id string) string { return driver.NamePrefix + id }
+
+// PCIAddr is a PCI function address.
+type PCIAddr struct {
+	Domain, Bus, Slot, Function int
 }
 
-// ParseMetadata parses the element as virDomainGetMetadata returns it.
-func ParseMetadata(raw string) (Metadata, error) {
-	var m Metadata
-	if err := xml.Unmarshal([]byte(raw), &m); err != nil {
-		return Metadata{}, err
+// ParsePCI parses "0000:26:00.0".
+func ParsePCI(s string) (PCIAddr, error) {
+	m := pciRe.FindStringSubmatch(s)
+	if m == nil {
+		return PCIAddr{}, fmt.Errorf("libvirt: PCI address %q: want 0000:26:00.0", s)
 	}
-	if m.ID == "" {
-		return Metadata{}, fmt.Errorf("no instance id in %q", raw)
+	var a PCIAddr
+	for i, dst := range []*int{&a.Domain, &a.Bus, &a.Slot, &a.Function} {
+		v, err := strconv.ParseInt(m[i+1], 16, 32)
+		if err != nil {
+			return PCIAddr{}, err
+		}
+		*dst = int(v)
 	}
-	return m, nil
+	return a, nil
 }
 
-// PCIAddress is a PCI function: domain:bus:slot.function.
-type PCIAddress struct {
-	Domain   uint16
-	Bus      uint8
-	Slot     uint8
-	Function uint8
+// String is the canonical "0000:26:00.0" form.
+func (a PCIAddr) String() string {
+	return fmt.Sprintf("%04x:%02x:%02x.%x", a.Domain, a.Bus, a.Slot, a.Function)
 }
 
-// ParsePCIAddress parses sysfs's "0000:01:00.0".
-func ParsePCIAddress(s string) (PCIAddress, error) {
-	var p PCIAddress
-	dom, rest, ok1 := strings.Cut(s, ":")
-	bus, rest, ok2 := strings.Cut(rest, ":")
-	slot, fn, ok3 := strings.Cut(rest, ".")
-	if !ok1 || !ok2 || !ok3 || len(dom) != 4 || len(bus) != 2 || len(slot) != 2 || len(fn) != 1 {
-		return p, fmt.Errorf("PCI address %q: want dddd:bb:ss.f", s)
+// DomainParams are the values of the domain template.
+type DomainParams struct {
+	ID         string
+	Generation uint64
+	VCPU       int
+	RAMMiB     int64
+	// Disk is the instance's qcow2 overlay, Seed its NoCloud ISO.
+	Disk, Seed string
+	// Network is the libvirt network to attach to; empty means NetworkName.
+	Network  string
+	Hostdevs []PCIAddr
+}
+
+// RenderDomain returns the domain XML for p: q35, OVMF with libvirt's
+// per-VM NVRAM, host-passthrough CPU, a virtio-blk overlay with discard,
+// virtio-net, the seed ISO as CD-ROM, a serial console and nothing else: no
+// graphics, USB or sound.
+func RenderDomain(p DomainParams) (string, error) {
+	if !idRe.MatchString(p.ID) {
+		return "", fmt.Errorf("libvirt: instance id %q: want letters, digits and dashes, at most 63", p.ID)
 	}
-	d, err1 := strconv.ParseUint(dom, 16, 16)
-	b, err2 := strconv.ParseUint(bus, 16, 8)
-	sl, err3 := strconv.ParseUint(slot, 16, 8)
-	f, err4 := strconv.ParseUint(fn, 16, 8)
-	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || sl > 0x1f || f > 7 {
-		return p, fmt.Errorf("PCI address %q: want dddd:bb:ss.f", s)
+	if p.VCPU < 1 || p.RAMMiB < 1 {
+		return "", fmt.Errorf("libvirt: %d vCPU, %d MiB: every size must be positive", p.VCPU, p.RAMMiB)
 	}
-	return PCIAddress{Domain: uint16(d), Bus: uint8(b), Slot: uint8(sl), Function: uint8(f)}, nil
+	if p.Disk == "" || p.Seed == "" {
+		return "", fmt.Errorf("libvirt: disk and seed paths are required")
+	}
+	if p.Network == "" {
+		p.Network = NetworkName
+	}
+	data := struct {
+		DomainParams
+		Name, MetadataNS string
+	}{p, DomainName(p.ID), MetadataNS}
+	var b bytes.Buffer
+	if err := domainT.Execute(&b, data); err != nil {
+		return "", err
+	}
+	return b.String(), nil
 }
 
-func (p PCIAddress) String() string {
-	return fmt.Sprintf("%04x:%02x:%02x.%x", p.Domain, p.Bus, p.Slot, p.Function)
+// Marker is what the metadata of a Kondukter domain says.
+type Marker struct {
+	ID         string
+	Generation uint64
 }
 
-// MAC is the guest NIC's address: QEMU's 52:54:00 prefix and three bytes of
-// the id's hash, stable across re-creates, so the network's lease for it
-// is found without reading the domain XML.
-func MAC(id string) string {
-	h := sha256.Sum256([]byte(id))
-	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", h[0], h[1], h[2])
-}
-
-func xmlEscape(s string) string {
-	var b strings.Builder
-	_ = xml.EscapeText(&b, []byte(s)) // strings.Builder never fails
-	return b.String()
+// ParseMarker reads the Kondukter marker from a domain definition. ok is
+// false for a domain that is not Kondukter's: no marker, or a marker whose
+// id does not match the domain's name.
+func ParseMarker(domainXML string) (m Marker, ok bool) {
+	var d struct {
+		Name     string `xml:"name"`
+		Metadata struct {
+			Instance struct {
+				XMLName    xml.Name
+				ID         string `xml:"id,attr"`
+				Generation string `xml:"generation,attr"`
+			} `xml:"urn:kondukter:instance:1 instance"`
+		} `xml:"metadata"`
+	}
+	if err := xml.Unmarshal([]byte(domainXML), &d); err != nil {
+		return Marker{}, false
+	}
+	in := d.Metadata.Instance
+	if in.ID == "" || d.Name != DomainName(in.ID) {
+		return Marker{}, false
+	}
+	g, _ := strconv.ParseUint(in.Generation, 10, 64)
+	return Marker{ID: in.ID, Generation: g}, true
 }

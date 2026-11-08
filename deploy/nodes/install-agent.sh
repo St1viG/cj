@@ -136,6 +136,22 @@ enroll() {
 	fi
 }
 
+# selinux_module lets libvirt's confined daemons look at the agent: they read
+# /proc/<pid> of every client, and refuse one in unconfined_service_t with
+# "Cannot find start time for pid" (spike S1). Not needed without SELinux.
+selinux_module() {
+	command -v semodule >/dev/null || return 0
+	[ -n "$D" ] || selinuxenabled 2>/dev/null || return 0
+	local mod=/usr/share/kondukter-agent/kondukter-agent.cil
+	mkdir -p "$D$(dirname "$mod")"
+	install -m 0644 "$here/fedora/kondukter-agent.cil" "$D$mod"
+	if run semodule -i "$mod"; then
+		say "installed the SELinux module kondukter-agent"
+	else
+		say "warning: could not install $mod; libvirt may refuse the agent (see deploy/nodes/README.md)"
+	fi
+}
+
 if [ "$os" = linux ]; then
 	unit=/etc/systemd/system/kondukter-agent.service
 	command -v systemctl >/dev/null || [ -n "$D" ] || die "systemctl not found"
@@ -146,8 +162,11 @@ if [ "$os" = linux ]; then
 	install -m 0755 "$binary" "$D$bin"
 	install -m 0644 "$here/fedora/kondukter-agent.service" "$D$unit"
 	write_config
+	# 0711, not 0700: QEMU runs as another user and must reach the disks in
+	# here. The store inside is 0600.
 	mkdir -p "$D$datadir"
-	chmod 0700 "$D$datadir"
+	chmod 0711 "$D$datadir"
+	selinux_module
 	run systemctl daemon-reload
 	enroll
 	if [ "$start" = 1 ]; then

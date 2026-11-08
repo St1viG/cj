@@ -14,8 +14,11 @@ Type=exec
 User=root
 ExecStart=/usr/local/bin/kondukter-agent run --config /etc/kondukter-agent/config.yaml
 # /var/lib/kondukter-agent: the store (state.db), image cache and disks.
+# 0711: QEMU runs as another user and must be able to reach the disks below
+# (the libvirt driver refuses to start otherwise); others cannot list the
+# directory, and state.db with the node's key inside it is 0600 root.
 StateDirectory=kondukter-agent
-StateDirectoryMode=0700
+StateDirectoryMode=0711
 # /run/kondukter-agent: the rendered kdk.nft.
 RuntimeDirectory=kondukter-agent
 RuntimeDirectoryMode=0750
