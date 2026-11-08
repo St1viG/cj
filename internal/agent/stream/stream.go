@@ -78,7 +78,7 @@ func (c *Config) defaults() {
 		c.BackoffMin = time.Second
 	}
 	if c.BackoffMax == 0 {
-		c.BackoffMax = 60 * time.Second
+		c.BackoffMax = agentproto.ReconnectBackoffMax
 	}
 	if c.BatchSize == 0 {
 		c.BatchSize = 100

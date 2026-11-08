@@ -29,6 +29,9 @@ const (
 	MaxMessageBytes = 4 << 20
 	// HeartbeatInterval is how often the agent sends a Heartbeat.
 	HeartbeatInterval = 10 * time.Second
+	// ReconnectBackoffMax caps the agent's reconnect delay (full jitter, so
+	// any delay below it), SPEC §7.1.
+	ReconnectBackoffMax = 60 * time.Second
 )
 
 // NodeURIPrefix starts the URI SAN of every node certificate (ADR-0024).
