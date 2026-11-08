@@ -23,6 +23,9 @@ func TestRenderDomain(t *testing.T) {
 		"<source file='/data/instances/abc123/disk.qcow2'/>",
 		"<source file='/data/instances/abc123/seed.iso'/>",
 		"<serial type='pty'/>",
+		// SPEC 10.1: guests of different tenants must not reach each other
+		// over the shared bridge, where no IP-level rule sees the traffic.
+		"<port isolated='yes'/>",
 	} {
 		if !strings.Contains(x, want) {
 			t.Errorf("domain XML lacks %q", want)
