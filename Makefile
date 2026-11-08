@@ -27,7 +27,7 @@ SQLC         ?= $(if $(filter $(SQLC_VERSION),$(shell sqlc version 2>/dev/null))
 BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
-.PHONY: help tools gen sqlc build agent-dist web web-dev test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
+.PHONY: help tools gen sqlc build agent-dist web web-dev test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status demo-up demo-reset demo-down
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -103,6 +103,15 @@ migrate-down: ## Roll back the most recent migration on DATABASE_URL
 
 migrate-status: ## Show which migrations DATABASE_URL has applied
 	$(GO) run ./cmd/kondukter migrate status --database-url '$(DATABASE_URL)'
+
+demo-up: ## Start the demo control plane on the tailnet, seed it, print logins and an enroll command
+	hack/demo.sh up
+
+demo-reset: ## Terminate every instance and wait, undo drills, empty the instance tables (nodes stay)
+	hack/demo.sh reset
+
+demo-down: ## Stop the demo stack; V=1 also deletes the database (CA and node identities too)
+	V='$(V)' hack/demo.sh down
 
 clean: ## Remove build output
 	rm -rf $(BIN)

@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 18 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
+**Done: 19 of 45 items** (about 16 of 35 estimated sessions) · 7 partly done · 19 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -52,7 +52,7 @@
 **P4 — Real fleet end-to-end (CLI)**
 - [ ] P4.1 — Fedora GPU node bootstrap
 - [ ] P4.2 — Mac node bootstrap
-- [ ] P4.3 — Demo deployment of the control plane
+- [ ] P4.3 — Demo deployment of the control plane · *partly done: built and run on the development Mac; the checks from FED-D and on MAC-P wait for those hosts*
 - [ ] P4.4 — Enroll the fleet
 - [ ] P4.5 — Happy path on hardware
 - [ ] P4.6 — Failure path on hardware
@@ -581,7 +581,45 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0011, ADR-0020
 - **Size:** S
 
-#### ☐ P4.3 — Demo deployment of the control plane
+#### ◐ P4.3 — Demo deployment of the control plane
+- **As built so far (2026-11-08):**
+  - **Compose:** `kondukter` is no longer behind the `app` profile.
+    - It publishes the API on `8080` and the gateway on `8443`, and `KONDUKTER_BIND=127.0.0.1` keeps both local.
+    - It takes its public URL, gateway hosts and advertise address, and the image base URL from the environment.
+    - Its healthcheck is the new `kondukter healthcheck`, which GETs `/healthz` on loopback, because the distroless image has no shell or curl.
+    - `images` is `caddy:2.11.7-alpine` serving `deploy/images/dist` read-only on `8081`.
+    - The build context leaves out `.claude`, which held other checkouts of the repo (556 MB, 65 s of `COPY . .`). The Go build uses BuildKit cache mounts.
+  - **`make demo-up`** (`hack/demo.sh up`):
+    - creates `.env` from `.env.example` with a random `KONDUKTER_MASTER_KEY` and `SEED_PASSWORD`;
+    - reads the MagicDNS name and tailnet IP from `tailscale status --json`, falling back to `localhost` with a warning, or takes `KONDUKTER_HOST`/`KONDUKTER_TAILNET_IP`. The public URL, the advertise address, the gateway certificate's SANs (name, IP, `localhost`, `127.0.0.1`) and the catalog's image URLs follow from it;
+    - runs `compose up --build --wait`, then `seed catalog`, `seed accounts` and `token create` inside the container. Those print the three logins with their API keys and the paste-ready install command.
+  - **`make demo-reset`** works through the API, in this order:
+    1. unquarantines quarantined nodes as the operator;
+    2. undrains `DRAINING` and `MAINTENANCE` nodes as the partner;
+    3. force-terminates every live instance and waits up to `RESET_TIMEOUT` (180 s) for `TERMINATED`;
+    4. truncates `instance_events`, `allocations`, `usage_records`, `instances`, `idempotency_keys` and `audit_log`;
+    5. waits for every node to be `READY`.
+
+    It exits non-zero, leaving the tables intact, if an instance does not terminate or a node does not come back. Nodes, identities, catalog, accounts and sessions stay.
+  - **`make demo-down`**, and `V=1` drops the database volume.
+  - **Fix found on the way:** the quarantine drill showed that a quarantined node's deletion reports were dropped, so its terminated instances stayed `TERMINATING` forever. Commit `fix(gateway)`, in ADR-0024 and P3.3.
+  - **Checked on the 8 GB development Mac (MAC-A class), with a separate project and ports so the dev database stayed untouched:**
+    - `demo-up` from an empty volume took 156 s on the first run, which pulled the Go image and downloaded modules. With the image built but a cold compile cache it took 116 s, and with the image built it took 12 s.
+    - Over the tailnet name: `/healthz` answered `ok`, `nc -z` reached the gateway, and the image server answered 200.
+    - A mock-driver agent enrolled with the printed command dialled the MagicDNS gateway and reported `READY`.
+    - `demo-reset` timings:
+      - 3 s with two `RUNNING` instances;
+      - 5 s with the node `QUARANTINED`, one instance terminated during the quarantine and one still `RUNNING`;
+      - 6 s with the node `DRAINING` and an instance `RUNNING`;
+      - 2 s with the node in `MAINTENANCE`.
+
+      Each run ended with the node `READY`, and 0 instances and 0 usage rows in the database.
+    - With the agent stopped, it exited 1 and left the tables as they were.
+    - Over the four drills, neither the agent nor the control plane logged an error or warning.
+- **Open:**
+  - `curl http://<magicdns>:8080/healthz` and `nc -z <magicdns> 8443` from FED-D, which needs that host.
+  - A `demo-up` timing on MAC-P itself.
+  - The image server has nothing to serve until P1.5 builds the images into `deploy/images/dist`.
 - **Goal:** The compose stack on MAC-P, reachable by every node over the tailnet.
 - **Deliverables:** `deploy/compose/compose.yaml` extended: `kondukter` (API `:8080` plain HTTP on the tailnet, gateway `:8443` mTLS, `KONDUKTER_PUBLIC_URL=http://<magicdns>:8080`), `images` (static file server for `deploy/images/dist/*.qcow2|*.img|*.sha256` on `:8081`), Postgres with a named volume; gateway server certificate with SANs for the MagicDNS name and tailnet IP; `make demo-up` (compose up, migrate, seed catalog and accounts, print API keys and the enroll-token command); `make demo-reset` (terminate all instances through the API, wait for `TERMINATED`, truncate instance tables, keep nodes, identities and catalog); `make demo-down`.
 - **Acceptance criteria:** From FED-D, `curl http://<magicdns>:8080/healthz` and `nc -z <magicdns> 8443` succeed; `make demo-up` from an empty volume finishes in under two minutes; `make demo-reset` leaves all nodes `READY` and zero instances.
@@ -714,12 +752,12 @@ Not scheduled. Collected so nothing is forgotten.
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
-| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+3 partly) |
+| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+4 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
+| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+1 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 1 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **18 (+5 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **19 (+7 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

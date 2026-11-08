@@ -1,6 +1,7 @@
-# Kondukter control-plane stack (ADR-0014). Run it through the Makefile
-# (`make db-up`, `make db-down`, `make db-psql`), which passes the env file:
-# `.env` at the repo root if present, else `.env.example`.
+# Kondukter control-plane stack (ADR-0014). Run it through the Makefile,
+# which passes the env file: `.env` at the repo root if present, else
+# `.env.example`. `make db-up` starts only Postgres, for development and
+# tests; `make demo-up` (hack/demo.sh) starts everything for the demo.
 name: kondukter
 
 services:
@@ -21,20 +22,57 @@ services:
       retries: 30
     restart: unless-stopped
 
-  # Placeholder until P3: the binary only prints its version. The `app`
-  # profile keeps it out of `make db-up`; P4.3 makes it a default service.
+  # The control plane (roadmap P4.3): public API and web app on 8080, mTLS
+  # agent gateway on 8443. `serve` migrates the database on start.
+  # hack/demo.sh exports the tailnet addresses below; without it they
+  # default to localhost, which only agents on this machine can use.
   kondukter:
-    profiles: [app]
     build:
       context: ../..
       dockerfile: deploy/compose/kondukter.Dockerfile
       args:
         VERSION: ${KONDUKTER_VERSION:-dev}
+    command: ["serve"]
     environment:
       KONDUKTER_DATABASE_URL: postgres://${POSTGRES_USER:-kondukter}:${POSTGRES_PASSWORD:-kondukter}@postgres:5432/${POSTGRES_DB:-kondukter}?sslmode=disable
+      # Seals the CA key stored in the database; keep it with the volume.
+      # hack/demo.sh up generates one into .env. (Not `:?`: compose would
+      # then refuse every command, `make db-up` included, without it.)
+      KONDUKTER_MASTER_KEY: ${KONDUKTER_MASTER_KEY:-}
+      # Where nodes and browsers reach the API, as put in enroll commands.
+      KONDUKTER_PUBLIC_URL: ${KONDUKTER_PUBLIC_URL:-http://localhost:8080}
+      # SANs of the gateway certificate, and the address agents dial.
+      KONDUKTER_GATEWAY_HOSTS: ${KONDUKTER_GATEWAY_HOSTS:-localhost,127.0.0.1}
+      KONDUKTER_GATEWAY_ADVERTISE: ${KONDUKTER_GATEWAY_ADVERTISE:-localhost:8443}
+      # Expanded in the demo catalog's image URLs by `kondukter seed catalog`.
+      KONDUKTER_IMAGE_BASE_URL: ${KONDUKTER_IMAGE_BASE_URL:-http://localhost:8081}
+    # Docker Desktop publishes on every host interface, the tailnet's included
+    # (ADR-0014). Set KONDUKTER_BIND=127.0.0.1 to keep the stack local.
+    ports:
+      - "${KONDUKTER_BIND:-0.0.0.0}:${KONDUKTER_API_PORT:-8080}:8080"
+      - "${KONDUKTER_BIND:-0.0.0.0}:${KONDUKTER_GATEWAY_PORT:-8443}:8443"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/kondukter", "healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Static file server for the images built into deploy/images/dist
+  # (*.qcow2, *.img and their *.sha256), which agents download from
+  # KONDUKTER_IMAGE_BASE_URL. Caddy serves range requests, so an
+  # interrupted download resumes.
+  images:
+    image: caddy:2.11.7-alpine
+    command: ["caddy", "file-server", "--root", "/srv", "--listen", ":8081", "--browse"]
+    volumes:
+      - ../images/dist:/srv:ro
+    ports:
+      - "${KONDUKTER_BIND:-0.0.0.0}:${KONDUKTER_IMAGES_PORT:-8081}:8081"
+    restart: unless-stopped
 
 volumes:
   pgdata:
