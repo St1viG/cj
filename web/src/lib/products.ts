@@ -17,7 +17,7 @@ export interface Product {
   /** Price per hour in minor units (cents); undefined while unpriced. */
   priceMinor?: number;
   currency: string;
-  availability: "available" | "soon";
+  availability: "available";
   /** Who hosts it, when the source knows. */
   host?: string;
   /** The offer to create an instance from, for live products. */
@@ -25,9 +25,9 @@ export interface Product {
 }
 
 /**
- * The demo catalog as it is seeded (controlplane/catalog/demo.yaml) plus the
- * laptop GPU that waits for spike S2b. A guest cannot call the API, so this is
- * what a visitor sees; a signed-in customer sees the live offers instead.
+ * The demo catalog as it is seeded (controlplane/catalog/demo.yaml). A guest
+ * cannot call the API, so this is what a visitor sees; a signed-in customer
+ * sees the live offers instead.
  */
 export const demoProducts: readonly Product[] = [
   {
@@ -42,7 +42,7 @@ export const demoProducts: readonly Product[] = [
     priceMinor: 5,
     currency: "EUR",
     availability: "available",
-    host: "Partner datacenter · Apple Silicon and Fedora nodes",
+    host: "Partner datacenter · amd64 and arm64 nodes",
   },
   {
     id: "demo-gpu-gtx1060-1x",
@@ -58,20 +58,6 @@ export const demoProducts: readonly Product[] = [
     currency: "EUR",
     availability: "available",
     host: "Partner datacenter · Fedora GPU node",
-  },
-  {
-    id: "demo-gpu-rtx-1x",
-    name: "gpu-rtx-1x",
-    gpu: { model: "NVIDIA RTX (model TBC)", count: 1 },
-    vcpu: 4,
-    ramMib: 8192,
-    diskGib: 40,
-    archs: ["amd64"],
-    region: "eu-west",
-    capacity: "dedicated",
-    currency: "EUR",
-    availability: "soon",
-    host: "Partner datacenter · Fedora laptop",
   },
 ];
 
@@ -93,7 +79,7 @@ export function productFromOffer(o: Offer): Product {
     capacity: capacityLabel(o.capacityClass),
     priceMinor: o.pricePerHour ? Number(o.pricePerHour.amountMinor) : undefined,
     currency: o.pricePerHour?.currency || "EUR",
-    availability: o.archs.length > 0 ? "available" : "soon",
+    availability: "available",
     offerId: o.id,
   };
 }

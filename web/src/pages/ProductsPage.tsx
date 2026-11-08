@@ -23,7 +23,6 @@ const sorters: Record<Sort, (a: Product, b: Product) => number> = {
 
 /** Where "Launch" goes: log in first, or straight to the create form for a customer on live data. */
 function launchTarget(p: Product, role: Role | undefined): { to: string; label: string } | null {
-  if (p.availability === "soon") return null;
   if (role === Role.CUSTOMER) return { to: p.offerId ? `/app/instances/new?offer=${encodeURIComponent(p.offerId)}` : "/app/offers", label: "Launch" };
   if (role !== undefined) return null; // partners and operators do not rent
   return { to: "/login", label: "Log in to launch" };
@@ -54,7 +53,7 @@ function ProductName({ p }: { p: Product }) {
 }
 
 function Price({ p, unit }: { p: Product; unit: PriceUnit }) {
-  if (p.priceMinor === undefined) return <span className="mut2 m">coming soon</span>;
+  if (p.priceMinor === undefined) return <span className="mut2 m">on request</span>;
   return (
     <span className="m ink-h">
       {formatPrice(p.priceMinor, p.currency, unit)}
@@ -65,7 +64,6 @@ function Price({ p, unit }: { p: Product; unit: PriceUnit }) {
 
 function Action({ p, role }: { p: Product; role: Role | undefined }) {
   const target = launchTarget(p, role);
-  if (p.availability === "soon") return <span className="chip s-pend">soon</span>;
   if (!target) return <span className="mut2 m">customers only</span>;
   return (
     <Link className="btn sm p" to={target.to}>
@@ -298,7 +296,10 @@ export function ProductsPage() {
                     <div className="row">
                       <span className={`chip ${p.gpu ? "gpu" : ""}`}>{p.gpu ? "gpu" : "cpu"}</span>
                       <span className="sp" />
-                      {p.availability === "soon" && <span className="chip s-pend">soon</span>}
+                      <span className="chip s-run">
+                        <span className="led" aria-hidden="true" />
+                        available
+                      </span>
                     </div>
                     <ProductName p={p} />
                     <Specs p={p} />

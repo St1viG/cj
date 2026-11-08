@@ -17,7 +17,7 @@ Access rules, as built:
 
 | Route | Role | Data shown | Actions | RPCs |
 |---|---|---|---|---|
-| `/` | anyone | the guest home page: what Kondukter does, how it works, the demo catalog and who it is for; the animated lifecycle preview | Log in, or Open dashboard when signed in | — |
+| `/` | anyone | the guest home page: what Kondukter does, pricing cards led by the GTX 1060, a cost calculator, how it works beside a pinned panel, what is included, GTX 1060 use cases, the demo catalog, who it is for and a FAQ; the animated lifecycle preview, scroll reveals, and a fixed progress bar, section rail and call-to-action dock (`lib/landingFx.ts`; reduced motion turns the animation off) | Log in, or Open dashboard when signed in | — |
 | `/products` | anyone | the product catalog in the manner of a GPU price-comparison list: type tabs, filters (GPU model, architecture, availability, max price), price per hour / day / month, sort, table or card view. A visitor sees the demo catalog; a signed-in customer sees the live offers | Launch (log in first for a visitor; the create form for a customer) | `CatalogService.ListOffers` (customers only) |
 | `/login` | anyone | email + password form; seeded demo accounts hint in dev | Login | `AuthService.Login` |
 | `/app` | customer | redirect to `/app/instances` | — | — |

@@ -10,28 +10,28 @@ describe("/products", () => {
     const server = fakeAuthServer();
     renderApp("/products", server);
     expect(await screen.findByRole("heading", { name: "Compute you can log in to." })).toBeTruthy();
-    expect(screen.getByText("2 of 3 configurations".replace("2", "3"))).toBeTruthy();
+    expect(screen.getByText("2 of 2 configurations")).toBeTruthy();
     const gpu = within(screen.getByRole("row", { name: /gpu-gtx1060-1x/ }));
     expect(gpu.getByText("€0.40")).toBeTruthy();
     const launch = gpu.getByRole("link", { name: "Log in to launch" });
     expect(launch.getAttribute("href")).toBe("/login");
     // a guest never calls the API
     expect(server.calls.getMe).toBe(1);
-    // the laptop GPU is not for sale yet
-    expect(within(screen.getByRole("row", { name: /gpu-rtx-1x/ })).getByText("soon")).toBeTruthy();
+    // everything listed is on sale: nothing is marked as coming later
+    expect(screen.queryByText(/soon/i)).toBeNull();
   });
 
   it("filters by type and price unit, and switches to cards", async () => {
     renderApp("/products", fakeAuthServer());
     await screen.findByRole("heading", { name: "Compute you can log in to." });
     fireEvent.click(screen.getByRole("tab", { name: "CPU" }));
-    expect(screen.getByText("1 of 3 configurations")).toBeTruthy();
+    expect(screen.getByText("1 of 2 configurations")).toBeTruthy();
     expect(screen.queryByRole("row", { name: /gpu-gtx1060-1x/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "day" }));
     expect(screen.getByText("€1.20")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "View all" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Available now only/ }));
-    expect(screen.getByText("2 of 3 configurations")).toBeTruthy();
+    expect(screen.getByText("2 of 2 configurations")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cards" }));
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getAllByRole("link", { name: "Log in to launch" })).toHaveLength(2);
