@@ -331,7 +331,7 @@ section "Node hosts"
 # The checks that need a shell on the node live in the bootstrap scripts.
 for b in deploy/nodes/macos/bootstrap.sh deploy/nodes/fedora/bootstrap.sh; do
 	if [ -e "$root/$b" ]; then
-		skip "$b exists: run it with --check on the node (listed in the checklist)"
+		skip "$b exists: run it with --check on the node (see the checklist, T-1 day, item 3)"
 	else
 		skip "$b does not exist yet (P4.1 and P4.2), so no per-node host check"
 	fi

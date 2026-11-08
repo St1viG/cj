@@ -7,7 +7,9 @@ Node bootstrap and agent packaging.
 - `fedora/kondukter-agent.service` is the systemd unit for a Fedora node. The
   agent runs as root, because it owns the `inet kdk` nftables table and
   libvirt's system URI. The libvirt/VFIO bootstrap script will be added here
-  (P4.1).
+  (P4.1). So far `fedora/bootstrap.sh --check` is there: a read-only check of the
+  host (IOMMU, VFIO binding, libvirt, the agent, Tailscale) that prints the root
+  command for anything wrong. `host.env.example` lists its settings.
 - `macos/io.kondukter.agent.plist` is the LaunchDaemon for a Mac node. The
   agent runs as the dedicated user `_kondukter`, because Lima refuses to run
   as root. The Lima bootstrap script will be added here (P4.2).
