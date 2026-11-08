@@ -56,3 +56,19 @@ UPDATE instances SET desired = false WHERE id = $1;
 
 -- name: ListNodeInstancesInPhaseForUpdate :many
 SELECT * FROM instances WHERE node_id = @node_id AND phase = @phase ORDER BY id FOR UPDATE;
+
+-- name: ListProvisionTimedOutForUpdate :many
+-- SCHEDULED or PROVISIONING since before the cutoff, counted from placement
+-- (SPEC §6.3 provisioning timer).
+SELECT * FROM instances
+WHERE phase IN ('scheduled', 'provisioning')
+  AND coalesce(scheduled_at, phase_changed_at) < @cutoff::timestamptz
+ORDER BY phase_changed_at, id
+FOR UPDATE SKIP LOCKED;
+
+-- name: ListUnreachableTimedOutForUpdate :many
+-- UNREACHABLE since before the cutoff (SPEC §6.3 LOST timer).
+SELECT * FROM instances
+WHERE phase = 'unreachable' AND phase_changed_at < @cutoff::timestamptz
+ORDER BY phase_changed_at, id
+FOR UPDATE SKIP LOCKED;

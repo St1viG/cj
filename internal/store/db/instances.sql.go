@@ -226,6 +226,56 @@ func (q *Queries) ListNodeInstancesInPhaseForUpdate(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listProvisionTimedOutForUpdate = `-- name: ListProvisionTimedOutForUpdate :many
+SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at FROM instances
+WHERE phase IN ('scheduled', 'provisioning')
+  AND coalesce(scheduled_at, phase_changed_at) < $1::timestamptz
+ORDER BY phase_changed_at, id
+FOR UPDATE SKIP LOCKED
+`
+
+// SCHEDULED or PROVISIONING since before the cutoff, counted from placement
+// (SPEC §6.3 provisioning timer).
+func (q *Queries) ListProvisionTimedOutForUpdate(ctx context.Context, cutoff time.Time) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listProvisionTimedOutForUpdate, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.OfferID,
+			&i.ImageID,
+			&i.NodeID,
+			&i.Name,
+			&i.Desired,
+			&i.Phase,
+			&i.PhaseReason,
+			&i.PhaseChangedAt,
+			&i.PlacementGeneration,
+			&i.Spec,
+			&i.Connection,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ScheduledAt,
+			&i.RunningAt,
+			&i.TerminatedAt,
+			&i.AgentStatusAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSnapshotInstances = `-- name: ListSnapshotInstances :many
 SELECT
   i.id, i.spec,
@@ -256,6 +306,54 @@ func (q *Queries) ListSnapshotInstances(ctx context.Context, nodeID *uuid.UUID) 
 	for rows.Next() {
 		var i ListSnapshotInstancesRow
 		if err := rows.Scan(&i.ID, &i.Spec, &i.AcceleratorIds); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnreachableTimedOutForUpdate = `-- name: ListUnreachableTimedOutForUpdate :many
+SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at FROM instances
+WHERE phase = 'unreachable' AND phase_changed_at < $1::timestamptz
+ORDER BY phase_changed_at, id
+FOR UPDATE SKIP LOCKED
+`
+
+// UNREACHABLE since before the cutoff (SPEC §6.3 LOST timer).
+func (q *Queries) ListUnreachableTimedOutForUpdate(ctx context.Context, cutoff time.Time) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listUnreachableTimedOutForUpdate, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.OfferID,
+			&i.ImageID,
+			&i.NodeID,
+			&i.Name,
+			&i.Desired,
+			&i.Phase,
+			&i.PhaseReason,
+			&i.PhaseChangedAt,
+			&i.PlacementGeneration,
+			&i.Spec,
+			&i.Connection,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ScheduledAt,
+			&i.RunningAt,
+			&i.TerminatedAt,
+			&i.AgentStatusAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

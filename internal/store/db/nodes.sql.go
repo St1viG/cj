@@ -515,8 +515,9 @@ func (q *Queries) MarkAcceleratorMissing(ctx context.Context, arg MarkAccelerato
 	return err
 }
 
-const nodeHeartbeat = `-- name: NodeHeartbeat :exec
+const nodeHeartbeat = `-- name: NodeHeartbeat :one
 UPDATE nodes SET last_seen_at = now(), observed_generation = $2 WHERE id = $1
+RETURNING status
 `
 
 type NodeHeartbeatParams struct {
@@ -524,9 +525,11 @@ type NodeHeartbeatParams struct {
 	ObservedGeneration int64
 }
 
-func (q *Queries) NodeHeartbeat(ctx context.Context, arg NodeHeartbeatParams) error {
-	_, err := q.db.Exec(ctx, nodeHeartbeat, arg.ID, arg.ObservedGeneration)
-	return err
+func (q *Queries) NodeHeartbeat(ctx context.Context, arg NodeHeartbeatParams) (NodeStatus, error) {
+	row := q.db.QueryRow(ctx, nodeHeartbeat, arg.ID, arg.ObservedGeneration)
+	var status NodeStatus
+	err := row.Scan(&status)
+	return status, err
 }
 
 const nodeHello = `-- name: NodeHello :one

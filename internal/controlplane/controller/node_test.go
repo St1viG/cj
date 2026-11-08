@@ -50,7 +50,7 @@ func TestWatchdog(t *testing.T) {
 	s := storetest.New(t)
 	f := storetest.Seed(t, s)
 	node, _ := storetest.AddNode(t, s, f.Site.ID, storetest.NodeOpts{})
-	if err := s.NodeHeartbeat(ctx, db.NodeHeartbeatParams{ID: node.ID}); err != nil {
+	if _, err := s.NodeHeartbeat(ctx, db.NodeHeartbeatParams{ID: node.ID}); err != nil {
 		t.Fatal(err)
 	}
 	node, _ = s.GetNode(ctx, node.ID)
