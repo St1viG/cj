@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 23 of 45 items** (about 18.5 of 35 estimated sessions) · 9 partly done · 13 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 9 partly done · 12 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -62,7 +62,7 @@
 - [x] P5.2 — Customer pages (contents only)
 - [x] P5.3 — Partner pages
 - [x] P5.4 — Operator pages
-- [ ] P5.5 — Stage view data
+- [x] P5.5 — Stage view data
 
 **P6 — Showcase**
 - [ ] P6.1 — Demo script
@@ -776,13 +776,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - **Catalog and audit:** the section counts and table rows equalled `ListCatalog` (2 offers, 2 shapes, 2 images, 1 region), and the page had no buttons or inputs. The audit page's first and second pages of 50 matched `ListAuditLog`. Choosing `partner.drain_node` on the second page went back to the newest drains, and the actor filter combined with it.
   - P5.3's 54 checks, re-run against the embedded build after the `useParam` change, all passed. The only console errors were the signed-out `GetMe` 401, the `/favicon.ico` 404, and the deliberate 403s. **Not checked:** neither the demo catalog nor the test data has an offer no longer for sale or a deprecated image, so the page's listing of those is unverified.
 
-#### ☐ P5.5 — Stage view data
+#### ☑ P5.5 — Stage view data
 - **Goal:** The data stream the projector page needs during the failure drill.
 - **Deliverables:** `/stage` (operator role): nodes grouped by site with status, last seen and their non-terminal instances with phase and phase age, updated from a server stream (`AdminService.WatchFleet` added to the proto if 2 s polling of `ListInstances` proves insufficient); plain nested lists; `?demo=1` shortens ids.
 - **Acceptance criteria:** During drill 1 the page shows `RUNNING → UNREACHABLE → RUNNING` and the node status change without refresh.
 - **Depends on:** P5.4
 - **Decisions required:** ADR-0022
 - **Size:** S
+- **As built (2026-11-08):** `/stage` is plain nested lists: each site, its nodes with status, reason and last-seen age, and under each node the unfinished instances with their phase and how long they have been in it. Retired nodes are left out. Pending instances, and those on a node the list does not show, go under "Not on a listed node". `?demo=1` shortens instance ids. It polls `ListNodes` and `ListInstances` every 2 s, and `AdminService.WatchFleet` was not added to the proto, because a drill's changes last tens of seconds. That was measured, not assumed. Against a real `kondukter serve` with two mock-driver agents, headless Chrome watched failure drill 1: the agent hosting an instance was SIGKILLed and later restarted. The node and the instance showed UNREACHABLE after 40 s, inside the 45 s the drill expects, and were READY and RUNNING again 2 s after the restart. The page went through `running → unreachable → running` and `ready → unreachable → ready` with no reload and no console errors. A first run showed 85 s, because the control plane had just restarted and its watchdog gives silent nodes 95 s of grace after a start (the drill 2 fix). It is a property of the control plane, not of the page, and the rerun 4 minutes after the start gave 40 s. When a poll fails, as in drill 2, the last fleet stays on screen under a "Lost contact with Kondukter … Showing what it said at 14:05:09, 12 s ago" line. It appeared within 2 s of stopping a real server and cleared within 2 s of its restart, and the operator stayed signed in. An instance's phase gets the control plane's reason unless it is `running`, whose reason is only the normal `agent_running`. This came out of the real server and was not in the test fixtures. The page reuses `useNow`, `formatAge` and the node helpers from P5.3 and keeps its grouping in `pages/stage/fleet.ts`. Its tests use their own small in-memory server, `test/fakeStage.ts`. Checked: Vitest for grouping, projector mode, a drill followed live, ages that keep counting, and contact lost and regained; 215 tests in the web suite on the rebased tree; typecheck. **Open:** the drill was run with mock agents, so the real fleet (P4.6) is the final check, and a pass on a real projector at its resolution is not done. A hidden browser tab stops polling.
 
 ---
 
@@ -839,9 +840,9 @@ Not scheduled. Collected so nothing is forgotten.
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+3 partly) |
-| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 4 |
+| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **23 (+9 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **24 (+9 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
