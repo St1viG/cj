@@ -58,7 +58,10 @@ function downloadText(name: string, text: string): void {
  * One block that saves the private key (the heredoc is quoted, so the shell
  * leaves it alone), locks its permissions and logs in. `IdentitiesOnly` keeps
  * ssh from offering every key in the agent first, which makes the server
- * give up with "Too many authentication failures".
+ * give up with "Too many authentication failures". Every rental is a new
+ * machine with a new host key on the same address and port, so remembering
+ * host keys would stop the second rental with "host identification has
+ * changed"; the demo does not check or store them.
  */
 export function loginCommand(keyPath: string, privateKey: string, port: number, user: string, host: string): string {
   return [
@@ -66,7 +69,7 @@ export function loginCommand(keyPath: string, privateKey: string, port: number, 
     privateKey.trimEnd(),
     "EOF",
     `chmod 600 ${keyPath}`,
-    `ssh -i ${keyPath} -o IdentitiesOnly=yes -p ${port} ${user}@${host}`,
+    `ssh -i ${keyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p ${port} ${user}@${host}`,
   ].join("\n");
 }
 

@@ -59,7 +59,7 @@ describe("the Rent a GPU card on /app/offers", () => {
     expect(text).toContain(`cat > ~/Downloads/${KEY_FILE} <<'EOF'`);
     expect(text).toContain("-----BEGIN OPENSSH PRIVATE KEY-----");
     expect(text).toContain("-----END OPENSSH PRIVATE KEY-----\nEOF\nchmod 600");
-    expect(text).toContain(`ssh -i ~/Downloads/${KEY_FILE} -o IdentitiesOnly=yes -p 40000 ubuntu@100.64.0.5`);
+    expect(text).toContain(`ssh -i ~/Downloads/${KEY_FILE} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p 40000 ubuntu@100.64.0.5`);
     expect(text).toContain("http://100.64.0.5:40001"); // the mapping of guest port 8080 in the fake
   });
 
