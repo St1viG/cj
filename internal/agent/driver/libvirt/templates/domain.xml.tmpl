@@ -1,0 +1,45 @@
+<domain type='kvm'>
+  <name>{{esc .Name}}</name>
+  <metadata>
+    <k:instance xmlns:k='{{.MetadataNS}}' id='{{esc .ID}}' generation='{{.Generation}}'/>
+  </metadata>
+  <memory unit='MiB'>{{.RAMMiB}}</memory>
+  <vcpu>{{.VCPU}}</vcpu>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <firmware><feature enabled='no' name='secure-boot'/></firmware>
+    <boot dev='hd'/>
+  </os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{esc .Disk}}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{esc .Seed}}'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <source network='{{esc .Network}}'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'/>
+    <console type='pty'/>
+    <rng model='virtio'><backend model='random'>/dev/urandom</backend></rng>
+    <memballoon model='none'/>
+{{- range .Hostdevs}}
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source><address domain='0x{{printf "%04x" .Domain}}' bus='0x{{printf "%02x" .Bus}}' slot='0x{{printf "%02x" .Slot}}' function='0x{{printf "%x" .Function}}'/></source>
+    </hostdev>
+{{- end}}
+  </devices>
+</domain>
