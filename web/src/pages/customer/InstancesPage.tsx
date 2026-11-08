@@ -13,6 +13,7 @@ import { useWatchInstance } from "../../hooks/useWatchInstance";
 import { canTerminate, formatMinutes, formatMoney, formatTimestamp, isTransitional, phaseLabel, shortId } from "../../lib/format";
 import { newId } from "../../lib/ids";
 import { INSTANCE_PAGE_SIZE, useInstances } from "./queries";
+import { RentGpuCard } from "./RentGpuCard";
 import { PageTitle } from "../../components/PageTitle";
 
 /**
@@ -74,6 +75,7 @@ export function InstancesPage() {
   return (
     <section>
       <PageTitle>Instances</PageTitle>
+      <RentGpuCard />
       <p>
         <Link to="/app/offers">Browse offers</Link> to create one.
       </p>

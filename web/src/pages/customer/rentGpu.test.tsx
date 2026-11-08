@@ -22,6 +22,11 @@ describe("the Rent a GPU card on /app/offers", () => {
     expect(screen.getAllByRole("button", { name: /^Rent a / })).toHaveLength(1); // the CPU offer has none
   });
 
+  it("is also on the page a customer lands on after login", async () => {
+    renderApp("/app/instances", fakeApi());
+    expect(await rentButton()).toBeTruthy();
+  });
+
   it("makes a key, creates the instance with its public half and the service port, then shows how to log in", async () => {
     const api = fakeApi();
     renderApp("/app/offers", api);
