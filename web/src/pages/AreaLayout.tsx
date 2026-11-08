@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { NavLink, Outlet } from "react-router";
 import { useCurrentUser, useMe } from "../auth/AuthProvider";
 import { roleLabel } from "../auth/roles";
 import type { AreaDef } from "../routes";
@@ -10,7 +10,6 @@ import type { AreaDef } from "../routes";
 export function AreaLayout({ area }: { area: AreaDef }) {
   const me = useCurrentUser();
   const auth = useMe();
-  const navigate = useNavigate();
 
   return (
     <>
@@ -33,8 +32,8 @@ export function AreaLayout({ area }: { area: AreaDef }) {
         <button
           type="button"
           onClick={() => {
-            if (auth.status !== "signedIn") return;
-            void auth.logout().then(() => navigate("/login", { replace: true }));
+            // The route guard sends the signed-out user to /login.
+            if (auth.status === "signedIn") void auth.logout();
           }}
         >
           Log out

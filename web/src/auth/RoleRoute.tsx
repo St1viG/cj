@@ -19,7 +19,9 @@ export function RoleRoute({ role }: { role: Role }) {
     case "error":
       return <ErrorState error={auth.error} onRetry={auth.retry} />;
     case "signedOut":
-      return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+      // A session that ended behind the person's back returns them to where they were
+      // after login; a logout they chose starts the next login at home.
+      return <Navigate to="/login" replace state={auth.afterLogout ? undefined : { from: location.pathname + location.search }} />;
     case "signedIn":
       return auth.me.role === role ? <Outlet /> : <Navigate to={homePath(auth.me.role)} replace />;
   }
