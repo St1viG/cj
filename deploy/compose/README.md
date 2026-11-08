@@ -26,7 +26,7 @@ make demo-reset   # before each run: terminate every instance, undo the drills, 
 make demo-down    # stop; `make demo-down V=1` also drops the database
 ```
 
-[`hack/demo.sh`](../../hack/demo.sh) does the work.
+[`hack/demo.sh`](../../hack/demo.sh) does the work. [`hack/demo-failure.sh`](../../hack/demo-failure.sh) runs the three failure drills against the running stack (see [`docs/DEMO.md`](../../docs/DEMO.md#failure-drills)).
 
 `demo-up`:
 

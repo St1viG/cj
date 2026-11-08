@@ -25,30 +25,8 @@
 #   RESET_TIMEOUT                           seconds reset waits (default 180)
 set -euo pipefail
 
-root=$(cd "$(dirname "$0")/.." && pwd)
-cd "$root"
-env_file=${DEMO_ENV_FILE:-.env}
-
-# envval prints the last value of $1 in the env file, if there is one.
-envval() {
-	[ -e "$env_file" ] || return 0
-	sed -n "s/^$1=//p" "$env_file" | tail -1
-}
-
-# The environment wins over the env file, as in compose.
-api_port=${KONDUKTER_API_PORT:-$(envval KONDUKTER_API_PORT)}
-gw_port=${KONDUKTER_GATEWAY_PORT:-$(envval KONDUKTER_GATEWAY_PORT)}
-img_port=${KONDUKTER_IMAGES_PORT:-$(envval KONDUKTER_IMAGES_PORT)}
-export KONDUKTER_API_PORT=${api_port:=8080} KONDUKTER_GATEWAY_PORT=${gw_port:=8443} KONDUKTER_IMAGES_PORT=${img_port:=8081}
-api=http://127.0.0.1:$api_port
-
-say() { echo "demo: $*"; }
-warn() { echo "demo: $*" >&2; }
-die() { echo "demo: $*" >&2; exit 1; }
-compose() { docker compose -f deploy/compose/compose.yaml --env-file "$env_file" "$@"; }
-for tool in docker jq curl; do
-	command -v "$tool" >/dev/null || die "$tool not found"
-done
+# shellcheck source=hack/demo-lib.sh
+. "$(dirname "$0")/demo-lib.sh"
 
 # setenv sets $1=$2 in the env file, replacing an existing line.
 setenv() {
@@ -128,23 +106,6 @@ cmd_up() {
 	compose exec -T kondukter kondukter token create
 	echo
 	say "up in $(($(date +%s) - t0)) s. Next: kctl login --server $KONDUKTER_PUBLIC_URL --api-key <a key above>"
-}
-
-# rpc calls a Connect method with JSON and prints the response body; it
-# fails with the server's message on an error status.
-rpc() {
-	local out code
-	out=$(curl -sS -b "$jar" -c "$jar" -o - -w '\n%{http_code}' -X POST \
-		-H 'Content-Type: application/json' --data "$2" "$api/kondukter.api.v1.$1") ||
-		die "$1: cannot reach $api"
-	code=${out##*$'\n'}
-	out=${out%$'\n'*}
-	[ "$code" = 200 ] || die "$1: HTTP $code: $(jq -r '.message // .' <<<"$out" 2>/dev/null || echo "$out")"
-	echo "$out"
-}
-
-login() {
-	rpc AuthService/Login "$(jq -nc --arg e "$1" --arg p "$(envval SEED_PASSWORD)" '{email: $e, password: $p}')" >/dev/null
 }
 
 # live prints "id phase node" for every instance not yet terminal.
