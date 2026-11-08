@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 14 partly done · 7 not started. Updated with every commit that finishes an item.
+**Done: 26 of 45 items** (about 21 of 35 estimated sessions) · 14 partly done · 5 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -17,8 +17,8 @@
 - [x] P0.4 — Compose stack and CI
 
 **P1 — Spikes**
-- [ ] P1.1 — S1: libvirt from pure Go on Fedora
-- [ ] P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
+- [x] P1.1 — S1: libvirt from pure Go on Fedora
+- [x] P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
 - [ ] P1.3 — S2b: VFIO passthrough of the laptop RTX (FED-L)
 - [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac · *partly done: spike run and findings written; SSH from another tailnet machine waits for a second Mac*
 - [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale · *partly done: reachability from FED-D measured; the 30-minute stream and the restart tests need an agent run on FED-D*
@@ -250,7 +250,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 **Exit criterion:** findings files for S1–S5 exist with an explicit go/no-go each; gate P1.7 passed.
 
-#### ☐ P1.1 — S1: libvirt from pure Go on Fedora
+#### ☑ P1.1 — S1: libvirt from pure Go on Fedora
 - **Goal:** Prove `digitalocean/go-libvirt` does everything the libvirt driver needs, and settle how DNAT coexists with firewalld on Fedora.
 - **Deliverables:** `docs/spikes/S1-go-libvirt-fedora.md`; `hack/s1/` Go program that, on FED-D (or FED-L): connects to `qemu:///system` over the unix socket; defines a `<forward mode='open'/>` network `kdk-net` (10.77.0.0/24, dnsmasq DHCP); defines a q35 + OVMF + `host-passthrough` domain from an Ubuntu 24.04 amd64 cloud image (qcow2 overlay with backing file) plus a NoCloud ISO written with a pure-Go iso9660 library; starts it; reads the guest IP via `DomainInterfaceAddresses` (lease source); installs an nft table `inet kdk` with DNAT `tcp dport 40001 → guest:22`, forward accept for `ct status dnat`, masquerade for 10.77.0.0/24; destroys and undefines. Records SELinux denials (`ausearch -m avc -ts recent`) and the firewalld interaction.
 - **Acceptance criteria:** From MAC-P, `ssh -p 40001 ubuntu@<FED-D tailnet ip>` reaches the guest. Running the program twice is idempotent (second run finds the existing domain and returns). After destroy + undefine no overlay, ISO, nft rule or lease remains. The findings file states go/no-go for ADR-0019 and picks one firewalld approach: own nft table with `kdk-br0` in the `trusted` zone · `firewall-cmd --add-forward-port` + masquerade · firewalld disabled on demo nodes.
@@ -258,7 +258,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** D-20 (ADR-0019, Proposed), D-34 (ADR-0013)
 - **Size:** M
 
-#### ☐ P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
+#### ☑ P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
 - **Goal:** A Linux guest with working CUDA on the desktop's GPU, repeatable without host reboots.
 - **Deliverables:** `docs/spikes/S2a-vfio-gtx1060-desktop.md` recording: `lspci -nnk` and IOMMU groups (`find /sys/kernel/iommu_groups/ -type l`); whether the host has an iGPU or runs headless; kernel args (`intel_iommu=on iommu=pt` or `amd_iommu=on iommu=pt`, `vfio-pci.ids=10de:xxxx,10de:yyyy` for GPU + audio function); dracut `force_drivers+=" vfio vfio_iommu_type1 vfio_pci "`, `rd.driver.pre=vfio-pci`, nouveau/nvidia blacklist; libvirt `<hostdev managed='yes'>` entries; guest Ubuntu 24.04 cloud image with `nvidia-driver-580` closed modules and the CUDA 12.x toolkit; `nvidia-smi` and a llama.cpp CUDA run (`-ngl 99`, small GGUF) inside the guest; three destroy → create → `nvidia-smi` cycles (GPU reset behavior); boot-to-`nvidia-smi` time; FED-D's RAM and CPU count for the catalog.
 - **Acceptance criteria:** `nvidia-smi` in the guest shows the GTX 1060; llama.cpp reports CUDA offload and generates tokens; three consecutive destroy/create cycles succeed with no host reboot; findings list every host-side change needed (feeds P4.1).
