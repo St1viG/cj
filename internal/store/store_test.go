@@ -49,7 +49,7 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	first := tables()
 	want := []string{
 		"accelerators", "allocations", "api_keys", "audit_log", "enrollment_tokens",
-		"images", "instance_events", "instances", "memberships", "node_capacity",
+		"idempotency_keys", "images", "instance_events", "instances", "memberships", "node_capacity",
 		"nodes", "offers", "orgs", "partners", "pki_ca", "regions", "sessions", "shapes",
 		"sites", "ssh_keys", "usage_records", "users",
 	}

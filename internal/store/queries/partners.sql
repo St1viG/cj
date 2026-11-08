@@ -20,3 +20,7 @@ SELECT * FROM sites ORDER BY name;
 
 -- name: ListSitesByPartner :many
 SELECT * FROM sites WHERE partner_id = $1 ORDER BY name;
+
+-- name: GetSiteByName :one
+SELECT s.* FROM sites s JOIN partners p ON p.id = s.partner_id
+WHERE p.name = @partner_name AND s.name = @site_name;

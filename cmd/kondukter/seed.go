@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/St1viG/cj/internal/controlplane/accounts"
 	"github.com/St1viG/cj/internal/controlplane/catalog"
 	"github.com/St1viG/cj/internal/store"
 )
@@ -56,6 +58,51 @@ func newSeedCmd() *cobra.Command {
 		},
 	}
 	catalogCmd.Flags().String("file", "", "catalog YAML to seed instead of the built-in demo catalog")
-	cmd.AddCommand(catalogCmd)
+
+	accountsCmd := &cobra.Command{
+		Use:   "accounts",
+		Short: "Create the demo partner, site, orgs, users and API keys",
+		Long: "Creates partner demo-dc with site demo, orgs acme (customer), demo-dc (partner) and kondukter (operator), " +
+			"and users customer@, partner@ and operator@demo.local with the password in SEED_PASSWORD. " +
+			"A user without an API key gets one, printed once. Run `seed catalog` first.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			password := os.Getenv("SEED_PASSWORD")
+			if password == "" {
+				return errors.New("SEED_PASSWORD is required")
+			}
+			s, err := openMigrated(cmd)
+			if err != nil {
+				return err
+			}
+			defer s.Close()
+			users, err := accounts.SeedDemo(cmd.Context(), s, password)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			for _, u := range users {
+				key := "(has an API key; not shown again)"
+				if u.APIKey != "" {
+					key = u.APIKey
+				}
+				fmt.Fprintf(out, "%-22s %-9s org %-10s api key %s\n", u.Email, u.Role, u.Org, key)
+			}
+			return nil
+		},
+	}
+	cmd.AddCommand(catalogCmd, accountsCmd)
 	return cmd
+}
+
+// openMigrated migrates the database and opens it.
+func openMigrated(cmd *cobra.Command) (*store.Store, error) {
+	u, err := databaseURL(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if err := store.MigrateUp(cmd.Context(), u); err != nil {
+		return nil, err
+	}
+	return store.Open(cmd.Context(), u)
 }

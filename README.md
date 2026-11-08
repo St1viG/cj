@@ -30,6 +30,18 @@ make migrate-up  # apply the embedded migrations (kondukter migrate up)
 make             # list all targets
 ```
 
+A local stack, with `KONDUKTER_DATABASE_URL` from `.env.example` and a `KONDUKTER_MASTER_KEY` of 16+ characters:
+
+```sh
+bin/kondukter seed catalog                          # demo region, shapes, offers, images
+SEED_PASSWORD=… bin/kondukter seed accounts         # demo orgs and users; prints one API key each, once
+bin/kondukter serve                                 # API on :8080, agent gateway on :8443
+bin/kondukter token create                          # one-time enrollment token for site demo-dc/demo
+bin/kondukter-agent --config agent.yaml enroll --server http://localhost:8080 --token kdk_enr_…
+bin/kondukter-agent --config agent.yaml run         # driver: mock needs no VMM
+KDK_API_KEY=kdk_… hack/api-smoke.sh                 # list offers → create → watch RUNNING → terminate
+```
+
 ## Demo fleet
 
 | Machine | Role |

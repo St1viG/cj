@@ -47,36 +47,47 @@ type InstanceController struct {
 // is dropped from its node's snapshot, the agent deletes it, and its
 // deletion report ends it TERMINATED. A PENDING one ends TERMINATED at
 // once. Terminating a TERMINATING instance is a no-op; an instance that
-// already ended returns ErrTerminal.
+// already ended returns ErrTerminal with the instance.
 func (c *InstanceController) Terminate(ctx context.Context, id uuid.UUID, reason string) (db.Instance, error) {
-	if reason == "" {
-		reason = ReasonTerminate
-	}
 	var (
 		inst db.Instance
 		eff  Effects
 	)
 	err := c.Store.WithTx(ctx, func(tx store.Tx) error {
-		cur, err := tx.GetInstanceForUpdate(ctx, id)
-		if err != nil {
-			return store.NotFound(err)
-		}
-		switch {
-		case Terminal(cur.Phase):
-			inst = cur
-			return ErrTerminal
-		case cur.Phase == db.InstancePhaseTerminating:
-			inst = cur
-			return nil
-		}
-		inst, eff, err = Transition(ctx, tx, cur, EvTerminate, reason)
+		var err error
+		inst, eff, err = TerminateTx(ctx, tx, id, reason)
 		return err
 	})
 	if err != nil {
 		return inst, err
 	}
-	c.notify([]uuid.UUID{inst.ID}, eff)
+	c.Notify(inst.ID, eff)
 	return inst, nil
+}
+
+// TerminateTx is Terminate inside the caller's transaction (the API wraps
+// it with its idempotency record). The caller passes the result to Notify
+// after commit.
+func TerminateTx(ctx context.Context, tx store.Tx, id uuid.UUID, reason string) (db.Instance, Effects, error) {
+	if reason == "" {
+		reason = ReasonTerminate
+	}
+	cur, err := tx.GetInstanceForUpdate(ctx, id)
+	if err != nil {
+		return db.Instance{}, Effects{}, store.NotFound(err)
+	}
+	switch {
+	case Terminal(cur.Phase):
+		return cur, Effects{}, ErrTerminal
+	case cur.Phase == db.InstancePhaseTerminating:
+		return cur, Effects{}, nil
+	}
+	return Transition(ctx, tx, cur, EvTerminate, reason)
+}
+
+// Notify runs the hooks for a committed change to instance id.
+func (c *InstanceController) Notify(id uuid.UUID, eff Effects) {
+	c.notify([]uuid.UUID{id}, eff)
 }
 
 // TimerReport counts what a sweep changed.

@@ -35,7 +35,7 @@ func newRootCmd() *cobra.Command {
 	root.SetVersionTemplate(version.String("kondukter") + "\n")
 	root.PersistentFlags().String("database-url", os.Getenv("KONDUKTER_DATABASE_URL"),
 		"Postgres connection URL (env KONDUKTER_DATABASE_URL)")
-	root.AddCommand(newVersionCmd(), newMigrateCmd(), newServeCmd(), newSeedCmd())
+	root.AddCommand(newVersionCmd(), newMigrateCmd(), newServeCmd(), newSeedCmd(), newTokenCmd())
 	return root
 }
 
