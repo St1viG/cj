@@ -10,9 +10,11 @@ tool (
 
 require (
 	connectrpc.com/connect v1.21.1
+	github.com/digitalocean/go-libvirt v0.0.0-20261013170128-efbbdf578ac8
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.12.0
+	github.com/kdomanski/iso9660 v0.4.0
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/spf13/cobra v1.10.2
 	go.etcd.io/bbolt v1.5.0
