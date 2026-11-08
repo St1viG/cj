@@ -55,8 +55,11 @@ describe("the Rent a GPU card on /app/offers", () => {
 
     expect(await within(card("Your GPU")).findByRole("button", { name: "Download private key" })).toBeTruthy();
     const text = card("Your GPU").textContent ?? "";
-    expect(text).toContain(`ssh -i ~/Downloads/${KEY_FILE} -p 40000 ubuntu@100.64.0.5`);
-    expect(text).toContain(`chmod 600 ~/Downloads/${KEY_FILE}`);
+    // One block: it writes the key file, locks it, and logs in, so it needs no download.
+    expect(text).toContain(`cat > ~/Downloads/${KEY_FILE} <<'EOF'`);
+    expect(text).toContain("-----BEGIN OPENSSH PRIVATE KEY-----");
+    expect(text).toContain("-----END OPENSSH PRIVATE KEY-----\nEOF\nchmod 600");
+    expect(text).toContain(`ssh -i ~/Downloads/${KEY_FILE} -o IdentitiesOnly=yes -p 40000 ubuntu@100.64.0.5`);
     expect(text).toContain("http://100.64.0.5:40001"); // the mapping of guest port 8080 in the fake
   });
 

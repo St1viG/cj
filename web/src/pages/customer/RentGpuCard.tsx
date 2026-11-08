@@ -54,6 +54,22 @@ function downloadText(name: string, text: string): void {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * One block that saves the private key (the heredoc is quoted, so the shell
+ * leaves it alone), locks its permissions and logs in. `IdentitiesOnly` keeps
+ * ssh from offering every key in the agent first, which makes the server
+ * give up with "Too many authentication failures".
+ */
+export function loginCommand(keyPath: string, privateKey: string, port: number, user: string, host: string): string {
+  return [
+    `cat > ${keyPath} <<'EOF'`,
+    privateKey.trimEnd(),
+    "EOF",
+    `chmod 600 ${keyPath}`,
+    `ssh -i ${keyPath} -o IdentitiesOnly=yes -p ${port} ${user}@${host}`,
+  ].join("\n");
+}
+
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -171,13 +187,13 @@ export function RentGpuCard() {
 
       {phase === InstancePhase.RUNNING && connection && (
         <>
-          <p>It is running. Download your key, then log in from your terminal:</p>
-          <Terminal title="your terminal" command={`chmod 600 ${keyPath}\nssh -i ${keyPath} -p ${connection.sshPort} ${connection.sshUser}@${connection.host}`} />
+          <p>It is running. Copy this block and paste it into a terminal on your computer: it saves your key and logs you in.</p>
+          <Terminal title="your terminal" command={loginCommand(keyPath, rental.privateKey, connection.sshPort, connection.sshUser, connection.host)} />
           <p>
-            <button type="button" className="btn p" onClick={() => downloadText(KEY_FILE, rental.privateKey)}>
+            <button type="button" onClick={() => downloadText(KEY_FILE, rental.privateKey)}>
               Download private key
             </button>{" "}
-            <small>It is made in this browser and not stored anywhere else: keep the file.</small>
+            <small>The key is made in this browser and kept nowhere else. A download can be blocked on a plain-HTTP page; the block above does not need one.</small>
           </p>
           {service && (
             <p>
