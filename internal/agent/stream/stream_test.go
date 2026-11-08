@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -193,8 +194,11 @@ func TestHelloGetsDesiredStateAndFileChangesPush(t *testing.T) {
 	if !c.Connected() {
 		t.Fatal("Connected() = false after a snapshot")
 	}
+	// The snapshot answers the Hello, so it can arrive before the stub has
+	// recorded the Inventory sent right after it.
+	waitFor(t, 5*time.Second, "the stub to record two messages", func() bool { return len(rec.snapshot()) >= 2 })
 	first := rec.snapshot()
-	if len(first) < 2 || first[0].msg.GetHello().GetProtocolVersion() == "" || first[1].msg.GetInventory().GetHostname() != "test-node" {
+	if first[0].msg.GetHello().GetProtocolVersion() == "" || first[1].msg.GetInventory().GetHostname() != "test-node" {
 		t.Fatalf("stub did not see Hello then Inventory: %v", first)
 	}
 
@@ -398,13 +402,21 @@ func TestLostMessageIsRetransmitted(t *testing.T) {
 	if _, err := c.Enqueue(statusMsg("next")); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 5*time.Second, "the later message acked", func() bool { return rec.seqCounts()[lostSeq+1] == 1 })
-	if pending, _ := st.Pending(0, 0); len(pending) != 1 || pending[0].Seq != lostSeq {
+	// The stub records a message before its ack reaches the client, so wait
+	// for the store to drop the later one rather than for the stub.
+	var pending []*agentv1.AgentMessage
+	waitFor(t, 5*time.Second, "the later message acked", func() bool {
+		pending, _ = st.Pending(0, 0)
+		return !slices.ContainsFunc(pending, func(m *agentv1.AgentMessage) bool { return m.GetSeq() == lostSeq+1 })
+	})
+	// The lost message is still pending, unless it has been resent already.
+	if (len(pending) != 1 || pending[0].GetSeq() != lostSeq) && rec.seqCounts()[lostSeq] == 0 {
 		t.Fatalf("pending after the later ack = %v, want only the lost seq %d", pending, lostSeq)
 	}
+	// At least once: a slow ack lets RetransmitAfter fire again.
 	waitFor(t, 5*time.Second, "the lost message retransmitted and acked", func() bool {
 		o, _ := st.Outbox()
-		return rec.seqCounts()[lostSeq] == 1 && o.Len == 0
+		return rec.seqCounts()[lostSeq] >= 1 && o.Len == 0
 	})
 	if !faults.dropped {
 		t.Fatal("the fault never fired")
