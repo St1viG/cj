@@ -147,7 +147,7 @@ export const areas: readonly AreaDef[] = [
         path: "/stage",
         title: "Fleet",
         item: "P5.5",
-        rpcs: ["AdminService.WatchFleet", "AdminService.ListNodes", "AdminService.ListInstances"],
+        rpcs: ["AdminService.ListNodes", "AdminService.ListInstances"],
       },
     ],
   },
