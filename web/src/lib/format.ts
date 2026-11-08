@@ -1,7 +1,7 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Shape } from "@gen/kondukter/api/v1/catalog_pb";
-import { CapacityClass, InstancePhase, type Money, Protocol } from "@gen/kondukter/api/v1/types_pb";
+import { AcceleratorHealth, CapacityClass, InstancePhase, type Money, NodeStatus, Protocol } from "@gen/kondukter/api/v1/types_pb";
 
 const dash = "—";
 
@@ -78,6 +78,41 @@ export function isTransitional(phase: InstancePhase): boolean {
     phase === InstancePhase.PROVISIONING ||
     phase === InstancePhase.TERMINATING
   );
+}
+
+/** A node's status as the partner and operator read it: `UNREACHABLE` is "unreachable". */
+export function nodeStatusLabel(s: NodeStatus): string {
+  return (NodeStatus[s] ?? "unknown").toLowerCase();
+}
+
+/** "unreachable (missed heartbeats)", or the bare label when there is no reason. */
+export function withReason(label: string, reason: string): string {
+  return reason ? `${label} (${reason})` : label;
+}
+
+export function healthLabel(h: AcceleratorHealth): string {
+  return (AcceleratorHealth[h] ?? "unknown").toLowerCase();
+}
+
+/** Seconds as "45 s", "12 min 05 s" or "3 h 07 min"; a negative time counts as 0. */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ${String(s % 60).padStart(2, "0")} s`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+}
+
+/** How long before `now` (milliseconds) `ts` was, worded as `formatDuration` does. */
+export function formatAge(ts: Timestamp | undefined, now: number): string {
+  return ts ? formatDuration((now - timestampDate(ts).getTime()) / 1000) : dash;
+}
+
+/** The local time of day, "14:05:09", of a time in milliseconds. */
+export function formatClock(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 /** Whether TerminateInstance still means something for an instance in `phase`. */

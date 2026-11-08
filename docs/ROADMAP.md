@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 21 of 45 items** (about 17.5 of 35 estimated sessions) · 8 partly done · 16 not started. Updated with every commit that finishes an item.
+**Done: 22 of 45 items** (about 18 of 35 estimated sessions) · 8 partly done · 15 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -60,7 +60,7 @@
 **P5 — Web app skeleton**
 - [x] P5.1 — Web scaffold, auth, routing, embedding
 - [x] P5.2 — Customer pages (contents only)
-- [ ] P5.3 — Partner pages
+- [x] P5.3 — Partner pages
 - [ ] P5.4 — Operator pages
 - [ ] P5.5 — Stage view data
 
@@ -718,13 +718,24 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** All six `/app/*` routes are real pages, and `docs/WEB_PAGES.md` has a section describing each. It includes `/app/usage`, which is in the route map but not in this item's deliverables. Pages register through `pages/registry.tsx`, and the route table in `routes.ts` is data only. `ListUsage` came out of the detail page's RPC list, because `Instance.usage` is filled on every read. The list polls every 5 s and follows at most three in-flight instances with `WatchInstance`, because a browser allows about six HTTP/1.1 connections per host and each stream holds one. The demo is served over plain HTTP, which browsers treat as an insecure context. `crypto.randomUUID` and `navigator.clipboard` do not exist there, so the pages use `newId()` and `copyText()` in `src/lib/`, with fallbacks. `CreateInstance` reuses its idempotency key only for an identical retry within one visit to the form. `CreateAPIKey` always uses a fresh key, because the server's replay returns the key without its secret. The offers filter lives in the query key as plain numbers: TanStack Query hashes keys as JSON and cannot hold a `bigint`, which the first version of the RAM filter did. Two P5.1 details changed. A deliberate logout now starts the next login at home (the guard no longer attaches a return page when the sign-out was chosen), where it used to depend on which of two redirects ran first. Permanent errors (not found, no permission) are no longer retried. The tests use a longer Testing Library wait (8 s), so the suite passes on a busy or single-core machine. Checked: 151 Vitest tests (the pages against an in-memory Kondukter, including the stream-driven live updates and the failure paths), `pnpm typecheck`, and `make web`. Against a real `kondukter serve` with a mock-driver agent, reached through a non-loopback address so the page was an insecure context, headless Chrome ran 18 checks. It added an SSH key and an API key (the secret shown once). It created an instance from an offer, watched it go `scheduled → provisioning → running` without a reload, read the `ssh` command and port mappings, and used Copy through the fallback path. It then saw the usage page and terminated the instance, followed live to `terminated`. There were no console errors. **Open:** the acceptance step "log in with the copied command" needs a real VM (the mock driver has none), so it waits for P4.5; the changed pages have not been clicked through in a headed browser.
 
-#### ☐ P5.3 — Partner pages
+#### ☑ P5.3 — Partner pages
 - **Goal:** P-1 … P-4 as data and actions.
 - **Deliverables:** `/partner/sites`: sites list. `/partner/nodes`: table (hostname, status, arch, driver, agent version, vCPU / RAM / disk free vs total, accelerators with health, active instance count, last seen; never instance owners or specs) with Drain / Undrain actions. `/partner/enroll`: Create token → shows the one-time `kondukter-agent enroll …` command. `/partner/utilization`: per-node figures from `GetUtilization` as a table.
 - **Acceptance criteria:** The partner user sees only `demo-dc` nodes; a drain from the browser shows in `kctl nodes` and blocks placement; a token generated in the browser enrolls a node.
 - **Depends on:** P5.1
 - **Decisions required:** ADR-0022
 - **Size:** S
+- **As built (2026-11-08):** All four `/partner/*` routes are real pages in `web/src/pages/partner/`, registered as one map in `pages/registry.tsx`, and `docs/WEB_PAGES.md` has a section on them. The node columns and the Drain / Undrain buttons are in `web/src/pages/nodes.tsx` so that `/admin/nodes` (P5.4) can reuse them. No Go code changed. Labels are lower case, as on the customer pages.
+  - `/partner/sites` shows each site's node count and nodes by status (`ready 5, unreachable 5`). Each row links to its nodes (`/partner/nodes?site=…`) and to enrollment with that site chosen.
+  - `/partner/nodes` shows the deliverable's columns plus site, with the status reason next to the status (`draining (e2e drain)`). Free is total minus reserved minus allocated, shown as `6 of 8`. Accelerators read `GeForce GTX 1060 6GB (ok)`, with `in use` added when allocated. Last seen is an age that keeps counting between the 5 s refetches. The site filter is `?site=` and goes to `ListNodes`; `ListSites` was added to the page's RPCs for it. Drain is offered only on a ready node and Undrain only on a draining or maintenance one, as the server's transitions allow. Both ask in place: `Confirm` gained an optional reason field, and Drain sends the reason, which the server keeps (`drained by <email>` when empty).
+  - `/partner/enroll` shows the command exactly as the server words it, with Copy and the expiry. The server now words it as `sudo deploy/nodes/install-agent.sh --server … --token …` (P2.9), not the deliverable's `kondukter-agent enroll …`. Every Create sends a fresh idempotency key, because a replay could not show the token again.
+  - `/partner/utilization` shows the period the server used (the last 24 h when no dates are given) and the total instance minutes. Per node it shows vCPU, RAM, disk and accelerators allocated now of allocatable (`2 of 8 (25%)`), plus active instances and instance minutes. The period is whole local days with "To" included, as on `/app/usage`.
+  - Checked: 173 Vitest tests, 18 of them new for these pages against an in-memory partner API (`web/src/test/fakeFleet.ts`, a sibling of `fakeApi.ts`). They cover the drain rules, refusals shown inline, the requests sent, and a site filter that a link clears. `make web` passes. The local stack was compose Postgres on 55432, `kondukter serve` on 127.0.0.1:28080, and `kdk-sim` with the 5 `demo` nodes of `demo-dc`. The demo site also held 5 test nodes left UNREACHABLE by earlier runs. A second `kdk-sim` ran one node, with the operator key, at site `other` of a second partner, `other-dc`, which was inserted with SQL because no API creates partners or sites. A Playwright-core script drove headless Chrome as the seeded partner, once against the embedded build after `make web && make build` and once through Vite's dev proxy. All 54 checks passed both times:
+    - **Scoping:** the page listed exactly the hostnames that `kctl nodes` shows with the partner key (10, then 11 on the second run), all at `demo`. The operator key sees one more; the `other` node was nowhere on the page. While a customer instance ran on a listed node, its id, name, org, owner, offer and image were not on the page.
+    - **Drain:** an instance created with `kctl` ran on `sim-arm64-01`. Cancel left the node ready. Drain with the reason "e2e drain" showed `draining (e2e drain)` in the row within about 0.1 s, and `kctl nodes` showed `DRAINING` with the same reason. The other arm64 node, drained with no reason and no instances, showed `draining (drained by partner@demo.local)` and then `maintenance` on its own. With both arm64 nodes drained, a second arm64 instance stayed PENDING and unplaced for 6 s while the first kept running. After Undrain in the browser, it went RUNNING on the undrained node. An undrain of a ready node is refused (`failed_precondition`).
+    - **Utilization:** the busy node showed `2 of 8 (25%)` vCPU and `2 GiB of 16 GiB (13%)` RAM with 1 active, and the GPU node showed `0 of 1 (0%)`. The total equalled the sum of the rows. 2020-01-01 to 2020-01-02 asked for local midnight Jan 1 to Jan 3 and showed `0 min`, with the allocation unchanged.
+    - **Enroll:** the browser's token enrolled a real `kondukter-agent` with the mock driver, using `kondukter-agent enroll`, which is the step `install-agent.sh` runs; the script itself needs root. That enroll exited 0, and a second one with the same token was refused (`unauthenticated`). With the Nodes page open, `kondukter-agent run` started, and the node appeared as ready at `demo` 5.1 s later in both runs, without a reload (the 5 s refetch); `kctl nodes` agreed. The expiry shown was 1 h ahead, and Copy put the command on the clipboard.
+  - Each run leaves its enrolled test node behind, UNREACHABLE once the agent stops, because nothing retires nodes yet. The only console errors were the signed-out `GetMe` 401, a 404 for `/favicon.ico`, and the deliberate refused undrain.
 
 #### ☐ P5.4 — Operator pages
 - **Goal:** O-1, O-2 (read-only), O-3 (quarantine, force-terminate) and O-5.
@@ -797,9 +808,9 @@ Not scheduled. Collected so nothing is forgotten.
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+2 partly) |
-| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 2 |
+| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 3 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **21 (+8 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **22 (+8 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

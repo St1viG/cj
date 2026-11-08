@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { customerPages } from "./customer";
+import { partnerPages } from "./partner";
 
 /**
  * The finished pages by route pattern. A route in `routes.ts` with no entry
@@ -8,4 +9,5 @@ import { customerPages } from "./customer";
  */
 export const pageElements: Readonly<Record<string, ReactNode>> = {
   ...customerPages,
+  ...partnerPages,
 };

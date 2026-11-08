@@ -24,4 +24,11 @@ export const keys = {
   usage: {
     list: (period: object = {}) => ["usage", "list", period] as const,
   },
+  /** Every view of nodes starts with this root, so a status change can refetch them all. */
+  fleet: {
+    all: ["fleet"] as const,
+    sites: ["fleet", "sites"] as const,
+    partnerNodes: (siteId: string) => ["fleet", "partner-nodes", siteId] as const,
+    utilization: (params: object) => ["fleet", "utilization", params] as const,
+  },
 };
