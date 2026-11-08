@@ -5,6 +5,7 @@ import { OrgSchema, Role, UserSchema } from "@gen/kondukter/api/v1/types_pb";
 import { render } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { AppRoutes } from "../AppRoutes";
+import { createQueryClient } from "../api/queryClient";
 import { Providers } from "../Providers";
 
 /** The seeded demo accounts (kondukter seed accounts), minus the real password. */
@@ -78,10 +79,16 @@ function LocationProbe() {
   return <output data-testid="location">{l.pathname + l.search}</output>;
 }
 
-/** Renders the whole route tree at `path` against an in-memory server. */
-export function renderApp(path: string, server = fakeAuthServer()) {
+/** Renders the whole route tree at `path` against an in-memory server (any fake with a transport). */
+export function renderApp<S extends { transport: Transport } = ReturnType<typeof fakeAuthServer>>(
+  path: string,
+  server: S = fakeAuthServer() as unknown as S,
+) {
+  // No retries: a failing call shows its error at once instead of after the real backoff.
+  const queryClient = createQueryClient();
+  queryClient.setDefaultOptions({ queries: { ...queryClient.getDefaultOptions().queries, retry: false } });
   const view = render(
-    <Providers transport={server.transport}>
+    <Providers transport={server.transport} queryClient={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <AppRoutes />
         <LocationProbe />

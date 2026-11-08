@@ -1,5 +1,7 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { fakeApi } from "../test/fakeApi";
 import { type AccountName, accounts, fakeAuthServer, PASSWORD, renderApp } from "../test/fakeServer";
 
 function location(): string {
@@ -88,7 +90,7 @@ describe("a signed-in user", () => {
   });
 
   it("is redirected from an area's base path to its first page", async () => {
-    renderApp("/app", fakeAuthServer("customer"));
+    renderApp("/app", fakeApi());
     await waitFor(() => expect(location()).toBe("/app/instances"));
     expect(screen.getByRole("heading", { name: "Instances" })).toBeTruthy();
   });
@@ -101,15 +103,17 @@ describe("a signed-in user", () => {
   });
 
   it("sees only their area's navigation", async () => {
-    renderApp("/app/offers", fakeAuthServer("customer"));
+    renderApp("/app/offers", fakeApi());
     const nav = await screen.findByRole("navigation", { name: "Customer" });
     const links = Array.from(nav.querySelectorAll("a")).map((a) => a.getAttribute("href"));
     expect(links).toEqual(["/app/offers", "/app/instances", "/app/keys", "/app/usage"]);
   });
 
   it("matches /app/instances/new before /app/instances/:id", async () => {
-    renderApp("/app/instances/new", fakeAuthServer("customer"));
+    renderApp("/app/instances/new", fakeApi());
     expect(await screen.findByRole("heading", { name: "New instance" })).toBeTruthy();
+    // Not the detail page of an instance called "new".
+    expect(screen.queryByRole("link", { name: "← Instances" })).toBeNull();
   });
 
   it("logs out to /login and starts the next login at home", async () => {
@@ -121,6 +125,24 @@ describe("a signed-in user", () => {
 
     await logIn(accounts.customer.email, PASSWORD);
     await waitFor(() => expect(location()).toBe("/app/instances"));
+  });
+});
+
+describe("a session that ends", () => {
+  it("sends the user to /login and back to the same page after the next login", async () => {
+    const api = fakeApi();
+    renderApp("/app/keys", api);
+    await screen.findByRole("heading", { name: "Keys" });
+    await waitFor(() => expect(api.calls.listSSHKeys.length).toBeGreaterThan(0));
+
+    // The session expires behind the page's back; the next request finds out.
+    api.fail.listSSHKeys = new ConnectError("session expired or logged out", Code.Unauthenticated);
+    window.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(location()).toBe("/login"));
+
+    delete api.fail.listSSHKeys;
+    await logIn(accounts.customer.email, PASSWORD);
+    await waitFor(() => expect(location()).toBe("/app/keys"));
   });
 });
 

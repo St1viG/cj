@@ -9,11 +9,14 @@ import { errorMessage } from "../api/errors";
 export function Form({
   onSubmit,
   submitLabel = "Submit",
+  resetOnSuccess = false,
   error: outsideError,
   children,
 }: {
   onSubmit: (data: FormData) => void | Promise<void>;
   submitLabel?: string;
+  /** Clear the fields after a submit that succeeded (a form that adds a row to a list). */
+  resetOnSuccess?: boolean;
   /** An error the caller wants shown, e.g. from a mutation it manages itself. */
   error?: unknown;
   children: ReactNode;
@@ -31,11 +34,13 @@ export function Form({
   async function handle(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pending) return;
-    const data = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const data = new FormData(form);
     setPending(true);
     setError(undefined);
     try {
       await onSubmit(data);
+      if (resetOnSuccess && mounted.current) form.reset();
     } catch (err) {
       // A successful submit often navigates away, so the form may be gone.
       if (mounted.current) setError(err);
