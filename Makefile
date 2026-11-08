@@ -10,15 +10,19 @@ GO            ?= go
 GOLANGCI_LINT ?= golangci-lint
 BUF           ?= buf
 
+# docker compose with the repo's env file: .env if present, else .env.example.
+ENV_FILE ?= $(if $(wildcard .env),.env,.env.example)
+COMPOSE  ?= docker compose -f deploy/compose/compose.yaml --env-file $(ENV_FILE)
+
 # Git ref the proto contract must stay compatible with (buf breaking, FILE).
 # CI overrides it, e.g. BUF_AGAINST_REF=origin/main.
 BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
-.PHONY: help tools gen build test lint fmt clean
+.PHONY: help tools gen build test lint fmt clean db-up db-down db-psql
 
 help: ## List targets
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-8s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 tools: ## Install the toolchain: Brewfile, pinned Go codegen plugins, pinned protoc-gen-es
 	brew bundle install --file=Brewfile --no-upgrade
@@ -48,6 +52,16 @@ lint: ## buf lint + breaking check, go vet, golangci-lint (linters and format ch
 
 fmt: ## Format Go code with the formatters configured in .golangci.yml
 	$(GOLANGCI_LINT) fmt ./...
+
+db-up: ## Start Postgres (docker compose) and wait until it is healthy
+	$(COMPOSE) up -d --wait postgres
+
+db-down: ## Stop the compose stack; V=1 also deletes the Postgres volume
+	$(COMPOSE) down $(if $(V),--volumes)
+
+db-psql: ## Open psql in the Postgres container (pipe SQL in, or pass PSQL_ARGS)
+	$(COMPOSE) exec $(if $(shell [ -t 0 ] && echo tty),,-T) postgres \
+		sh -c 'exec psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" $(PSQL_ARGS)'
 
 clean: ## Remove build output
 	rm -rf $(BIN)

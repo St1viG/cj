@@ -1,0 +1,103 @@
+# CI gates (roadmap P0.4): generated code up to date, buf lint + breaking,
+# go vet + golangci-lint, build, go test -race against a Postgres service.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOLANGCI_LINT_VERSION: v2.15.0
+  BUF_VERSION: 1.75.0
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: kondukter
+          POSTGRES_PASSWORD: kondukter
+          POSTGRES_DB: kondukter
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kondukter -d kondukter"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      KONDUKTER_DATABASE_URL: postgres://kondukter:kondukter@localhost:5432/kondukter?sslmode=disable
+      # Pull requests are checked against their base branch, pushes to main
+      # against the previous commit.
+      BUF_AGAINST_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: ${{ env.BUF_VERSION }}
+          setup_only: true
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-only: true
+
+      - name: Install pinned codegen plugins
+        run: |
+          go build tool
+          pnpm install --frozen-lockfile
+
+      - name: Generated code is up to date
+        run: |
+          make gen
+          git diff --exit-code -- gen/
+
+      - name: Lint (buf lint, buf breaking, go vet, golangci-lint)
+        run: make lint
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test
+
+  web:
+    # Enabled in P5.1 together with the web app.
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: make web

@@ -1,0 +1,9 @@
+.git
+bin
+dist
+node_modules
+web/node_modules
+web/dist
+deploy/images/dist
+.env
+.env.*
