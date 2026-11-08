@@ -91,6 +91,24 @@ else
 		"enable SVM/VT-x in the firmware setup, then: sudo modprobe kvm_amd (or kvm_intel)"
 fi
 
+# Findings 1 and 6 of spike S1 (docs/spikes/S1-go-libvirt-fedora.md): a node
+# that suspends loses its VMs, its bridge and its firewall state, and on a host
+# with the nvidia driver the resume crashed the kernel.
+targets="sleep.target suspend.target hibernate.target hybrid-sleep.target"
+unmasked=
+for t in $targets; do
+	[ "$(systemctl is-enabled "$t" 2>/dev/null)" = masked ] || unmasked="$unmasked $t"
+done
+if [ -z "$unmasked" ]; then
+	ok "suspend and hibernate are masked"
+else
+	fail "this host can suspend (not masked:$unmasked)" "sudo systemctl mask $targets"
+fi
+case $(systemctl get-default 2>/dev/null) in
+multi-user.target) ok "boots to multi-user.target (headless)" ;;
+graphical.target) [ "$expect_gpu" = 1 ] && warn "boots to graphical.target: a host that gives its only GPU to guests has no display, so set multi-user.target (sudo systemctl set-default multi-user.target)" ;;
+esac
+
 # ------------------------------------------------------------------ IOMMU
 section "IOMMU and kernel arguments"
 cpu=intel
@@ -224,6 +242,18 @@ elif systemctl is-enabled virtqemud.socket >/dev/null 2>&1 || systemctl is-enabl
 else
 	fail "libvirt is not running and not enabled" "sudo systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket (or libvirtd on older Fedora)"
 fi
+for sock in virtqemud.socket virtnetworkd.socket; do
+	if [ "$(systemctl is-enabled "$sock" 2>/dev/null)" = enabled ]; then
+		ok "$sock is enabled"
+	elif active libvirtd.service; then
+		ok "libvirtd.service is running (monolithic daemon, no $sock)"
+	else
+		fail "$sock is not enabled: the agent needs both the qemu and the network daemon (S1 finding 2)" "sudo systemctl enable --now virtqemud.socket virtnetworkd.socket"
+	fi
+done
+if [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
+	warn "SELinux is enforcing: S1 finding 1 found virtnetworkd_t refusing clients that run as unconfined_service_t, which the agent's service does; P2.9 needs a policy module for it"
+fi
 if [ -n "$qemud" ] && have virsh; then
 	if out=$(virsh -c qemu:///system net-info "$net" 2>&1); then
 		if grep -q '^Active:.*yes' <<<"$out"; then ok "network $net is active"; else fail "network $net is defined but not active" "sudo virsh net-start $net"; fi
@@ -238,9 +268,24 @@ fi
 # ------------------------------------------------------------------ firewall
 section "Firewall"
 if have firewall-cmd && active firewalld.service; then
-	warn "firewalld is active: how the agent's nftables table coexists with it is decided at P1.7 (spike S1), so this check cannot judge it yet"
+	# Spike S1 finding 3: kdk-br0 in the trusted zone, plus a policy that lets
+	# trusted traffic out with masquerade. The agent's own nft table does the DNAT.
+	if firewall-cmd --get-policies 2>/dev/null | tr ' ' '\n' | grep -qx kdk-egress; then
+		ok "firewalld policy kdk-egress exists"
+	else
+		fail "firewalld is active and has no kdk-egress policy: guests get DNS but no egress (S1 finding 3)" \
+			"sudo sh -c 'firewall-cmd --permanent --new-policy kdk-egress && firewall-cmd --permanent --policy kdk-egress --add-ingress-zone trusted && firewall-cmd --permanent --policy kdk-egress --add-egress-zone ANY && firewall-cmd --permanent --policy kdk-egress --set-target ACCEPT && firewall-cmd --permanent --policy kdk-egress --add-masquerade && firewall-cmd --reload'  # as S1 describes it; not yet run from here"
+	fi
 else
 	ok "firewalld is not active"
+fi
+if [ -d /sys/class/net/kdk-br0 ] && have firewall-cmd && active firewalld.service; then
+	z=$(firewall-cmd --get-zone-of-interface=kdk-br0 2>&1 | head -1)
+	if [ "$z" = trusted ]; then
+		ok "kdk-br0 is in the trusted firewalld zone"
+	else
+		fail "kdk-br0 is in zone '$z', not trusted: the default zone drops the guests' DHCP (S1 finding 3)" "sudo firewall-cmd --permanent --zone=trusted --add-interface=kdk-br0 && sudo firewall-cmd --reload"
+	fi
 fi
 if have nft; then
 	if [ "$(id -u)" = 0 ]; then

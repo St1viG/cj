@@ -26,6 +26,8 @@
 #   PREFLIGHT_IMAGES='a b'       only check these image names are cached
 #                                (default: every active image for the node)
 #   PREFLIGHT_STALE=60           seconds without a heartbeat before a node warns
+#   PREFLIGHT_NODE_HOSTS=''      "fedora:fedora mac-a:macos": run each node's bootstrap.sh
+#                                --check over SSH (target:kind; local:macos runs here)
 #   PREFLIGHT_SETTLE=20          seconds a node may take to apply its latest
 #                                commands, as right after a reset
 #   DEMO_ENV_FILE, KONDUKTER_*_PORT, COMPOSE_PROJECT_NAME as for demo.sh
@@ -329,11 +331,34 @@ fi
 section "Node hosts"
 
 # The checks that need a shell on the node live in the bootstrap scripts.
-for b in deploy/nodes/macos/bootstrap.sh deploy/nodes/fedora/bootstrap.sh; do
-	if [ -e "$root/$b" ]; then
-		skip "$b exists: run it with --check on the node (see the checklist, T-1 day, item 3)"
+# PREFLIGHT_NODE_HOSTS="fedora:fedora mac-a:macos" runs each node's
+# `bootstrap.sh --check` over SSH (target:kind, kind being the directory under
+# deploy/nodes); "local:macos" runs it here. The scripts are read-only and are
+# piped to the node's bash, so nothing is copied.
+if [ -z "${PREFLIGHT_NODE_HOSTS:-}" ]; then
+	skip "node host checks: set PREFLIGHT_NODE_HOSTS=\"<ssh target>:<fedora|macos> ...\" to run bootstrap.sh --check on the nodes"
+fi
+for entry in ${PREFLIGHT_NODE_HOSTS:-}; do
+	target=${entry%%:*}
+	kind=${entry#*:}
+	script=$root/deploy/nodes/$kind/bootstrap.sh
+	if [ ! -e "$script" ]; then
+		miss "$entry: no $script"
+		continue
+	fi
+	if [ "$target" = local ]; then
+		out=$(bash "$script" --check 2>&1) && rc=0 || rc=$?
 	else
-		skip "$b does not exist yet (P4.1 and P4.2), so no per-node host check"
+		out=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$target" 'bash -s -- --check' <"$script" 2>&1) && rc=0 || rc=$?
+	fi
+	summary=$(grep 'bootstrap --check:' <<<"$out" | tail -1 || true)
+	if [ -z "$summary" ]; then
+		miss "$target: could not run bootstrap.sh --check: $(head -1 <<<"$out" | cut -c1-100)"
+	elif [ "$rc" = 0 ]; then
+		pass "$target ($kind): $summary"
+	else
+		miss "$target ($kind): $summary"
+		{ grep -A1 '^FAIL' <<<"$out" | grep -v '^--' | sed 's/^/        /' >&2; } || true
 	fi
 done
 

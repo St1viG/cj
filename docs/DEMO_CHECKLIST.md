@@ -22,7 +22,7 @@ One person can hold two roles. Nobody should hold all three on the day.
 |---|---|---|---|
 | 1 | Freeze OS updates on all five machines. | Fleet | Turn off automatic updates and install nothing from now on. Note each machine's OS version in the rehearsal log. |
 | 2 | Pull the repository and start the stack. | Presenter | `git pull --ff-only`, then `make demo-up`. It prints API keys only for accounts it creates, so keep the first run's output. |
-| 3 | Check the node hosts. | Fleet | Fedora: `ssh <host> 'bash -s -- --check' < deploy/nodes/fedora/bootstrap.sh`, which changes nothing and prints the root command for each FAIL. Macs: the same with `deploy/nodes/macos/bootstrap.sh`, run on the Mac or over SSH. |
+| 3 | Check the node hosts. | Fleet | Fedora: `ssh <host> 'bash -s -- --check' < deploy/nodes/fedora/bootstrap.sh`, which changes nothing and prints the root command for each FAIL. Macs: the same with `deploy/nodes/macos/bootstrap.sh`, run on the Mac or over SSH. `hack/preflight.sh` runs them all when `PREFLIGHT_NODE_HOSTS="fedora:fedora mac-a:macos"` is set (`<ssh target>:<kind>`). |
 | 4 | Pre-pull the images. | Fleet | An image is cached by the first instance that uses it on a node. On each real node, create one instance from every image it can run (`kctl create ... --wait`), then `make demo-reset`. `preflight.sh` fails for a node that is missing one. |
 | 5 | Verify the image digests. | Presenter | `hack/preflight.sh --deep` hashes every file in `deploy/images/dist` and compares it with the catalog. If it fails, the catalog was seeded before the image was rebuilt: fill in the new digest and run `make demo-up` again. |
 | 6 | Check the seeded accounts. | Presenter | `preflight.sh` signs in as all three. Also add the presenter's SSH public key at `/app/keys` as the customer. `make demo-reset` keeps it. |
@@ -79,6 +79,7 @@ Do these in order. The machines should already be where they will stay, since mo
 | Two arm64 nodes, a free healthy GTX 1060 | The Mac story or the GPU moment cannot run. |
 | No mock-driver nodes | *warn:* the fleet includes simulated nodes, which is fine only when you say so on screen. |
 | No live instances | A previous run left something behind: `make demo-reset`. |
+| With `PREFLIGHT_NODE_HOSTS`: each node's `bootstrap.sh --check` exits 0 | The host is not ready: the output lists each FAIL with the root command that fixes it. |
 | Each real node has cached every active image it can run | The first create downloads a gigabyte on stage. |
 | Each image file's `.sha256` matches a catalog digest (`--deep` hashes the file) | Agents reject the download. |
 
