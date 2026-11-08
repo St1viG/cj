@@ -84,6 +84,35 @@ func AgentStatus(ctx context.Context, tx store.Tx, node db.Node, st *agentv1.Ins
 	return out, nil
 }
 
+// QuarantinedStatus applies the one report Kondukter takes from a
+// quarantined node, whose messages are otherwise dropped (ADR-0024): that an
+// instance it was told to terminate is deleted. Accepting it only finishes a
+// termination Kondukter asked for and frees capacity on a node that takes no
+// new instances; without it the instance would stay TERMINATING, because the
+// agent never repeats an acked report. dropped is true when st was dropped
+// and a later Hello would carry what it said.
+func QuarantinedStatus(ctx context.Context, tx store.Tx, node db.Node, st *agentv1.InstanceStatus) (out Outcome, dropped bool, err error) {
+	if st.GetPhase() != agentv1.Phase_PHASE_DELETED {
+		return Outcome{Ignored: "node is quarantined"}, true, nil
+	}
+	id, ok := parseID(st.GetId())
+	if !ok {
+		return Outcome{Ignored: "not a Kondukter instance id"}, false, nil
+	}
+	inst, err := tx.GetInstanceForUpdate(ctx, id)
+	if errors.Is(store.NotFound(err), store.ErrNotFound) {
+		return Outcome{Ignored: "unknown instance"}, false, nil
+	}
+	if err != nil {
+		return Outcome{}, false, err
+	}
+	if inst.Phase != db.InstancePhaseTerminating {
+		return Outcome{Ignored: "node is quarantined and the instance is not terminating"}, false, nil
+	}
+	out, err = AgentStatus(ctx, tx, node, st)
+	return out, false, err
+}
+
 func parseID(s string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(s)
 	return id, err == nil

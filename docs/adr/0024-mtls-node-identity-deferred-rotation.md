@@ -13,7 +13,7 @@ The gateway must know which node is speaking and must never trust node identity 
 
 - **Enrollment:** a partner user or operator creates a one-time token for a site (TTL about 1 h, stored hashed). `kondukter-agent enroll --server <url> --token <token>` generates a key pair and CSR; Kondukter validates the token, creates the node (`ENROLLING`), signs a certificate from its internal CA with SAN URI `kondukter://node/<id>`, and returns it with the CA certificate.
 - **Gateway:** TLS with required client certificates; the node ID is taken only from the certificate. The gateway's own server certificate is signed by the same CA with the MagicDNS name and tailnet IP as SANs (ADR-0014).
-- **Deferred for the demo:** certificate rotation before expiry (demo certs are long-lived), revocation/deny-listing for `QUARANTINED`/`RETIRED` nodes, and signed agent self-update (D-24). Quarantine in the demo stops scheduling and ignores the node's messages, without cryptographic revocation.
+- **Deferred for the demo:** certificate rotation before expiry (demo certs are long-lived), revocation/deny-listing for `QUARANTINED`/`RETIRED` nodes, and signed agent self-update (D-24). Quarantine in the demo stops scheduling and ignores the node's messages, without cryptographic revocation. One exception: the confirmation that an instance Kondukter told the node to terminate is deleted is still applied, because the agent never repeats an acked report and the instance would otherwise stay `TERMINATING`. When the node leaves quarantine, its next heartbeat ends the stream, and the agent's new Hello re-reports what was dropped.
 
 ## Consequences
 
