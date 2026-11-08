@@ -1,7 +1,7 @@
 // Package stream owns the agent's outbound gRPC stream to the gateway
 // (SPEC §7.1, §8.1): Hello on every connect, heartbeats, outbox draining in
-// seq order, pruning on cumulative Ack, and reconnecting with exponential
-// backoff and full jitter capped at 60 s.
+// seq order, pruning on per-message Ack, resending what stays unacked, and
+// reconnecting with exponential backoff and full jitter capped at 60 s.
 package stream
 
 import (
@@ -53,6 +53,21 @@ type Config struct {
 	BackoffMax        time.Duration
 	// BatchSize bounds how many outbox messages are read per pass.
 	BatchSize int
+	// RetransmitAfter resends an outbox message that was not acked this long
+	// after it was sent on the current connection (a lost message or ack).
+	// Zero means three heartbeat intervals.
+	RetransmitAfter time.Duration
+	// Faults, if set, injects message faults (fleet simulator only).
+	Faults Faults
+}
+
+// Faults drops, duplicates, delays or reorders messages for chaos tests.
+// Hello and Inventory never pass through it: they are the handshake.
+type Faults interface {
+	// Outbound returns the messages to send in place of m; none drops it.
+	Outbound(m *agentv1.AgentMessage) []*agentv1.AgentMessage
+	// Inbound returns the messages to process in place of m.
+	Inbound(m *agentv1.ControlMessage) []*agentv1.ControlMessage
 }
 
 func (c *Config) defaults() {
@@ -67,6 +82,9 @@ func (c *Config) defaults() {
 	}
 	if c.BatchSize == 0 {
 		c.BatchSize = 100
+	}
+	if c.RetransmitAfter == 0 {
+		c.RetransmitAfter = 3 * c.HeartbeatInterval
 	}
 }
 
@@ -244,8 +262,9 @@ func (c *Client) session(ctx context.Context) (healthy bool, _ error) {
 	hb := time.NewTicker(c.cfg.HeartbeatInterval)
 	defer hb.Stop()
 	var sentUpTo uint64 // every un-acked message is resent once per connection
+	sent := map[uint64]time.Time{}
 	for {
-		if err := c.flush(s, &sentUpTo); err != nil {
+		if err := c.flush(s, &sentUpTo, sent); err != nil {
 			return fail(err)
 		}
 		if inv := c.takeInventory(); inv != nil {
@@ -261,7 +280,10 @@ func (c *Client) session(ctx context.Context) (healthy bool, _ error) {
 			return gotSnapshot.Load(), recvResult
 		case <-hb.C:
 			msg := &agentv1.AgentMessage{Body: &agentv1.AgentMessage_Heartbeat{Heartbeat: c.h.Heartbeat(sctx)}}
-			if err := s.Send(msg); err != nil {
+			if err := c.send(s, msg); err != nil {
+				return fail(err)
+			}
+			if err := c.retransmit(s, sent); err != nil {
 				return fail(err)
 			}
 		case <-c.wake:
@@ -277,23 +299,70 @@ func (c *Client) takeInventory() *agentv1.Inventory {
 	return inv
 }
 
-// flush sends every outbox message with seq > *sentUpTo.
-func (c *Client) flush(s agentv1.AgentGateway_ConnectClient, sentUpTo *uint64) error {
+// flush sends every outbox message with seq > *sentUpTo and notes when.
+func (c *Client) flush(s agentv1.AgentGateway_ConnectClient, sentUpTo *uint64, sent map[uint64]time.Time) error {
 	for {
 		msgs, err := c.store.Pending(*sentUpTo, c.cfg.BatchSize)
 		if err != nil {
 			return err
 		}
 		for _, m := range msgs {
-			if err := s.Send(m); err != nil {
+			if err := c.send(s, m); err != nil {
 				return err
 			}
-			*sentUpTo = m.Seq
+			*sentUpTo, sent[m.Seq] = m.Seq, time.Now()
 		}
 		if len(msgs) < c.cfg.BatchSize {
 			return nil
 		}
 	}
+}
+
+// retransmit resends the oldest outbox messages that were sent on this
+// connection more than RetransmitAfter ago and are still unacked: the
+// message or its ack was lost. The gateway's ingest is idempotent.
+func (c *Client) retransmit(s agentv1.AgentGateway_ConnectClient, sent map[uint64]time.Time) error {
+	msgs, err := c.store.Pending(0, c.cfg.BatchSize)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	pending := make(map[uint64]bool, len(msgs))
+	for _, m := range msgs {
+		pending[m.Seq] = true
+		at, ok := sent[m.Seq]
+		if !ok || now.Sub(at) < c.cfg.RetransmitAfter {
+			continue
+		}
+		c.log.Debug("retransmitting unacked message", "seq", m.Seq, "sent", now.Sub(at).Round(time.Millisecond))
+		if err := c.send(s, m); err != nil {
+			return err
+		}
+		sent[m.Seq] = now
+	}
+	// Forget acked messages below the newest one checked.
+	if len(msgs) > 0 {
+		last := msgs[len(msgs)-1].Seq
+		for seq := range sent {
+			if seq <= last && !pending[seq] {
+				delete(sent, seq)
+			}
+		}
+	}
+	return nil
+}
+
+// send passes m through the fault hook, if any, and sends the result.
+func (c *Client) send(s agentv1.AgentGateway_ConnectClient, m *agentv1.AgentMessage) error {
+	if c.cfg.Faults == nil {
+		return s.Send(m)
+	}
+	for _, out := range c.cfg.Faults.Outbound(m) {
+		if err := s.Send(out); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Client) receive(s agentv1.AgentGateway_ConnectClient, gotSnapshot *atomic.Bool) error {
@@ -302,25 +371,38 @@ func (c *Client) receive(s agentv1.AgentGateway_ConnectClient, gotSnapshot *atom
 		if err != nil {
 			return err
 		}
-		switch b := m.Body.(type) {
-		case *agentv1.ControlMessage_DesiredState:
-			if gotSnapshot.CompareAndSwap(false, true) {
-				c.connected.Store(true)
-				c.log.Info("stream up", "gateway", c.cfg.Address)
+		in := []*agentv1.ControlMessage{m}
+		if c.cfg.Faults != nil {
+			in = c.cfg.Faults.Inbound(m)
+		}
+		for _, m := range in {
+			if err := c.process(m, gotSnapshot); err != nil {
+				return err
 			}
-			c.h.DesiredState(b.DesiredState)
-		case *agentv1.ControlMessage_Ack:
-			n, err := c.store.Ack(b.Ack.GetSeq())
-			if err != nil {
-				return fmt.Errorf("prune outbox: %w", err)
-			}
-			c.log.Debug("ack", "seq", b.Ack.GetSeq(), "pruned", n)
-		case *agentv1.ControlMessage_Drain:
-			c.h.Drain(b.Drain)
-		case *agentv1.ControlMessage_Upgrade:
-			c.log.Warn("ignoring upgrade request: self-update is not in the demo", "version", b.Upgrade.GetVersion())
 		}
 	}
+}
+
+func (c *Client) process(m *agentv1.ControlMessage, gotSnapshot *atomic.Bool) error {
+	switch b := m.Body.(type) {
+	case *agentv1.ControlMessage_DesiredState:
+		if gotSnapshot.CompareAndSwap(false, true) {
+			c.connected.Store(true)
+			c.log.Info("stream up", "gateway", c.cfg.Address)
+		}
+		c.h.DesiredState(b.DesiredState)
+	case *agentv1.ControlMessage_Ack:
+		n, err := c.store.Ack(b.Ack.GetSeq())
+		if err != nil {
+			return fmt.Errorf("prune outbox: %w", err)
+		}
+		c.log.Debug("ack", "seq", b.Ack.GetSeq(), "pruned", n)
+	case *agentv1.ControlMessage_Drain:
+		c.h.Drain(b.Drain)
+	case *agentv1.ControlMessage_Upgrade:
+		c.log.Warn("ignoring upgrade request: self-update is not in the demo", "version", b.Upgrade.GetVersion())
+	}
+	return nil
 }
 
 // TLSConfig builds the client TLS config from the node identity. With

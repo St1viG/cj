@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 15 of 45 items** (about 12.5 of 35 estimated sessions) · 3 partly done · 27 not started. Updated with every commit that finishes an item.
+**Done: 16 of 45 items** (about 13.5 of 35 estimated sessions) · 3 partly done · 26 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -46,7 +46,7 @@
 - [x] P3.7 — Public API core and API-key auth
 - [x] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
 - [x] P3.9 — `kctl` CLI
-- [ ] P3.10 — Fleet simulator and chaos tests
+- [x] P3.10 — Fleet simulator and chaos tests
 - [ ] P3.11 — Usage and estimated cost
 
 **P4 — Real fleet end-to-end (CLI)**
@@ -476,13 +476,26 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** S
 - **As built (2026-11-08):** `internal/kctl` (cobra; `cmd/kctl` is a thin main) uses the generated Connect clients over HTTP/1.1. Server streaming works there, so `watch` needs no h2c. `login --server URL [--api-key K | stdin]` checks the key with GetMe before writing `$XDG_CONFIG_HOME/kctl/config.yaml` (default `~/.config/kctl/config.yaml`, mode 0600); `--server`, `--api-key` and `--config` can also come from `KCTL_SERVER`, `KCTL_API_KEY` and `KCTL_CONFIG`. Commands: `login`, `whoami`, `offers [--accel nvidia|none] [--model] [--arch] [--region] [--min-vcpu] [--min-ram] [--all]`, `images [--offer] [--arch]`, `create --offer <id|shape> --image <id|name[:version]> [--arch] [--ssh-key <account key id|file|key>]… [--port 8080|53/udp]… [--user-data file] [--name] [--wait]`, `get`, `list [--all]`, `watch [--until-terminal]`, `terminate [--wait]`, `ssh [--exec] [-i key] [-- args]`, `nodes [--site]`, `enroll-token --site`, and `usage [--instance]` (needs P3.11). Details: `create` defaults to `~/.ssh/id_*.pub`, generates an idempotency key, and retries `Unavailable` with it; `watch` exits 2 when the instance ends FAILED or LOST. `--output json` prints protojson, one object per line (watch is a stream of lines). Errors print as one line, `kctl: <connect code>: <message>`. `kctl ssh` refuses server-supplied users or hosts that could read as ssh options, and ends options with `--`. For `ssh` to print anything, the agent must report port mappings, so the port allocator from P2.7 was built here: `internal/agent/access`, wired as the reconciler's `Prepare` / `Deleted` / `Retain` hooks. The full lifecycle test now checks `ssh -p 40000 ubuntu@<advertise address>`. `hack/kctl-smoke.sh` passed against a live stack (`serve`, seeds, an arm64 mock agent): create → watch PENDING → SCHEDULED → PROVISIONING → RUNNING, `ssh -p 40000 ubuntu@127.0.0.1`, `get`, terminate → TERMINATED, JSON through `jq`, and a one-line `not_found`. (A first run requested amd64 on the arm64-only node and correctly ended `FAILED(no_capacity)` after 60 s; the script documents `KDK_ARCH`.) The real simulator replaces the single agent in P3.10. Tests run kctl in-process against the API: login and config mode, one-line errors, the full lifecycle with watch and ssh, the hostile ssh endpoint, and watch ending FAILED with exit 2 and JSON lines.
 
-#### ☐ P3.10 — Fleet simulator and chaos tests
+#### ☑ P3.10 — Fleet simulator and chaos tests
 - **Goal:** Confidence in the control loop at scale and under faults before touching hardware.
 - **Deliverables:** `internal/simulator`: N in-process agents (mock driver, temp data dirs) enrolled against a real Kondukter and Postgres, each with configurable inventory (e.g. 20 CPU nodes and 5 GPU nodes); fault hooks in the stream layer (drop, duplicate, delay, reorder); kill and restart an agent; stop and start Kondukter; `cmd/kdk-sim` for manual runs. Chaos tests asserting convergence: every desired instance ends `RUNNING` on exactly one node; no allocation without an instance; no non-terminal instance without allocations; `desired_generation == observed_generation` on every connected node within 30 s of quiescence.
 - **Acceptance criteria:** `go test -race -run Chaos ./internal/simulator/...` passes with 100 agents and 200 create/terminate operations under 10 % drop plus duplication; an agent killed mid-provision ends with one `RUNNING` VM; a Kondukter restart mid-run reconnects all streams within 60 s with the invariants holding; a reconnect storm of 100 agents produces no errors.
 - **Depends on:** P3.9
 - **Decisions required:** ADR-0002, ADR-0009
 - **Size:** M
+- **As built (2026-11-08):** `internal/simulator` enrolls in-process agents (real `agent.Agent`, real stream client with mTLS, real reconciler, mock driver with persisted state) through the public enrollment API. Each has its own data dir and a configurable inventory (`CPUNode`, `GPUNode`); an agent can be stopped (killed) and started again, and `VMs()` reads the simulated host whether or not its agent runs. `Check` and `WaitConverged` implement the invariants: every desired instance is RUNNING with exactly one VM, on its node; no terminal instance has a VM, and no VM lacks an instance; no allocation belongs to a terminal or pending instance; every placed instance holds one resource row and exactly its shape's accelerators, and none is double-held; every running agent's node has observed its desired generation. `cmd/kdk-sim` runs a fleet against a live Kondukter, enrolling through `PartnerService` with a partner or operator key; `--drop`, `--duplicate` and `--reorder` turn on faults, and its data dir makes reruns reuse the same nodes. `hack/kctl-smoke.sh` passed against it. **The faults exposed protocol gaps, now fixed:**
+  1. `Ack` is now per message, not cumulative (agent.proto). Before, a lost status was silently confirmed by the ack of a later one.
+  2. The stream client resends any outbox message still unacked `RetransmitAfter` (3 heartbeats) after it was sent on the same connection.
+  3. The gateway re-pushes the snapshot when a heartbeat shows the agent behind `desired_generation` for `RepushAfter` (3 heartbeats). Before, a lost snapshot was only corrected by the next change.
+  4. On shutdown the gateway ends agent streams with `Unavailable` and the API ends WatchInstance streams, instead of `GracefulStop` waiting its full 10 s for streams that never end.
+  5. A stream canceled mid-ingest ends quietly instead of logging "ingest failed".
+  6. A scheduler pass now reads the fleet once per region and caches offers and images: placement p50 went from 8 s to 4.5 s with 100 nodes under `-race`.
+
+  `stream.Faults` (outbound and inbound hooks; Hello and Inventory, the handshake, are exempt) is implemented by `simulator.Chaos` (drop, duplicate, reorder, delay). **Results** (`go test -race -run Chaos ./internal/simulator/...`, about 46 s on the 8 GB Mac):
+  - 100 agents (40 amd64 CPU, 40 arm64 CPU, 20 GPU with 3 GPUs each) took 143 creates and 57 terminates from 10 concurrent API clients under 10 % drop and 10 % duplication in both directions, 5 % reorder and up to 10 ms delay (about 280 messages dropped and 270 duplicated per run), and converged about 15 s after the last operation. No instance failed.
+  - An agent killed while its instance was PROVISIONING and restarted after 1 s ends with exactly one RUNNING VM.
+  - A Kondukter stopped while 30 instances were being placed and provisioned, and started again 2 s later, had all 20 streams back about 4 s after it started (agents on the default 1 s → 60 s backoff); the invariants held and all 30 instances were RUNNING.
+  - A reconnect storm of 100 agents, once at start-up and again after a gateway restart (back in about 1 s), produced zero error log records on the control plane and on the agents.
 
 #### ☐ P3.11 — Usage and estimated cost
 - **Goal:** "Usage accrues" is visible and explainable.
@@ -647,11 +660,11 @@ Not scheduled. Collected so nothing is forgotten.
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+2 partly) |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 9 |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 10 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **15 (+3 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **16 (+3 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

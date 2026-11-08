@@ -431,6 +431,8 @@ func (h instanceHandler) WatchInstance(ctx context.Context, req *connect.Request
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-h.stopped:
+			return nil
 		case <-changed:
 		case <-t.C:
 		}

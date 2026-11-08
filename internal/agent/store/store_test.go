@@ -65,16 +65,26 @@ func TestOutboxAppendPendingAck(t *testing.T) {
 		t.Fatalf("Pending(2, 2) = %v", seqs(page))
 	}
 
+	// Acks are per message: acking 3 leaves 1 and 2 (a lost message is
+	// never confirmed by a later one).
 	n, err := s.Ack(3)
-	if err != nil || n != 3 {
-		t.Fatalf("Ack(3) = %d, %v; want 3", n, err)
+	if err != nil || n != 1 {
+		t.Fatalf("Ack(3) = %d, %v; want 1", n, err)
 	}
 	if n, _ := s.Ack(3); n != 0 {
 		t.Fatalf("repeated Ack(3) pruned %d, want 0", n)
 	}
+	if got, _ := s.Pending(0, 0); fmt.Sprint(seqs(got)) != "[1 2 4 5]" {
+		t.Fatalf("after Ack(3) pending = %v, want [1 2 4 5]", seqs(got))
+	}
+	for _, seq := range []uint64{1, 2} {
+		if n, _ := s.Ack(seq); n != 1 {
+			t.Fatalf("Ack(%d) pruned %d", seq, n)
+		}
+	}
 	rest, _ := s.Pending(0, 0)
 	if got := seqs(rest); fmt.Sprint(got) != "[4 5]" {
-		t.Fatalf("after Ack(3) pending = %v, want [4 5]", got)
+		t.Fatalf("after Ack(1..3) pending = %v, want [4 5]", got)
 	}
 
 	st, _ := s.Outbox()
@@ -99,8 +109,10 @@ func TestSeqMonotonicAcrossReopen(t *testing.T) {
 		}
 	}
 	// Prune everything: the next seq must still continue, not restart.
-	if _, err := s.Ack(3); err != nil {
-		t.Fatal(err)
+	for seq := uint64(1); seq <= 3; seq++ {
+		if _, err := s.Ack(seq); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_ = s.Close()
 
@@ -256,14 +268,24 @@ func TestHelperCrashWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	gen, _ := s.AppliedGeneration()
+	// Ack the prefix in order (acks are per message), so the outbox stays
+	// contiguous after the pruned part.
+	st, _ := s.Outbox()
+	acked := st.NextSeq - 1
+	if st.Len > 0 {
+		acked = st.First - 1
+	}
 	for i := 0; ; i++ {
 		seq, err := s.Append(heartbeat(gen))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if i%5 == 4 {
-			if _, err := s.Ack(seq - 2); err != nil {
-				t.Fatal(err)
+			for acked < seq-2 {
+				acked++
+				if _, err := s.Ack(acked); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		if i%7 == 6 {

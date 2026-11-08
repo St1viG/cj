@@ -45,7 +45,7 @@ gen: ## Generate gen/go and gen/ts from proto/, internal/store/db from SQL
 sqlc: ## Generate internal/store/db from internal/store/{migrations,queries}
 	$(SQLC) generate
 
-build: ## Build kondukter, kondukter-agent and kctl into bin/
+build: ## Build every command (kondukter, kondukter-agent, kctl, kdk-sim, …) into bin/
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
 
 test: ## Run Go tests with the race detector (DB tests skip if Postgres is down)

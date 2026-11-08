@@ -207,19 +207,18 @@ func (s *Store) Pending(after uint64, limit int) ([]*agentv1.AgentMessage, error
 	return out, nil
 }
 
-// Ack prunes every outbox message with seq <= upTo (cumulative ack) and
-// returns how many were removed.
-func (s *Store) Ack(upTo uint64) (int, error) {
+// Ack removes the outbox message with seq, if present, and reports how
+// many it removed (0 or 1). Acks are per message (agent.proto Ack).
+func (s *Store) Ack(seq uint64) (int, error) {
 	n := 0
 	err := s.db.Update(func(tx *bolt.Tx) error {
-		c := tx.Bucket(bucketOutbox).Cursor()
-		for k, _ := c.First(); k != nil && decodeUint(k) <= upTo; k, _ = c.Next() {
-			if err := c.Delete(); err != nil {
-				return err
-			}
-			n++
+		b := tx.Bucket(bucketOutbox)
+		k := encodeUint(seq)
+		if b.Get(k) == nil {
+			return nil
 		}
-		return nil
+		n = 1
+		return b.Delete(k)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("agent store: ack: %w", err)

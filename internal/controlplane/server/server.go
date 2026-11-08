@@ -202,6 +202,8 @@ func (s *Server) Serve(ctx context.Context, apiLis, gwLis net.Listener, gwTLS *t
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		s.API.Shutdown()     // end watch streams
+		s.Gateway.Shutdown() // agents reconnect to the next process
 		_ = api.Shutdown(shutdown)
 		stopped := make(chan struct{})
 		go func() { gw.GracefulStop(); close(stopped) }()

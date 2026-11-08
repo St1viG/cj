@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -41,12 +42,26 @@ type API struct {
 	Enrollment *enrollment.Service
 	// Gateway says whether a node's stream is up (AdminService).
 	Gateway interface{ Connected(nodeID uuid.UUID) bool }
+
+	stopOnce sync.Once
+	stopped  chan struct{} // closed by Shutdown; nil (never) without New
+}
+
+// Shutdown ends every WatchInstance stream so a graceful HTTP shutdown is
+// not held up by them; clients re-watch after reconnecting.
+func (a *API) Shutdown() {
+	if a.stopped != nil {
+		a.stopOnce.Do(func() { close(a.stopped) })
+	}
 }
 
 // New returns an API over s. Bus, Scheduler and Instances come from the
 // rest of the control plane.
 func New(s *store.Store, log *slog.Logger, bus *events.Bus, sched Scheduler, instances *controller.InstanceController) *API {
-	return &API{Store: s, Log: log, Bus: bus, Scheduler: sched, Instances: instances, Auth: Authenticator{Store: s}}
+	return &API{
+		Store: s, Log: log, Bus: bus, Scheduler: sched, Instances: instances, Auth: Authenticator{Store: s},
+		stopped: make(chan struct{}),
+	}
 }
 
 // Mount registers the public services on mux behind the auth interceptor.
