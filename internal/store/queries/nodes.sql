@@ -70,6 +70,8 @@ RETURNING *;
 -- (draining, maintenance, quarantined) are operator decisions and stay.
 UPDATE nodes SET
   agent_version = sqlc.arg(agent_version), driver = sqlc.arg(driver),
+  accelerator_kinds = coalesce(sqlc.arg(accelerator_kinds)::text[], '{}'),
+  max_instances = sqlc.arg(max_instances)::integer,
   observed_generation = sqlc.arg(last_applied)::bigint,
   last_seen_at = now(), updated_at = now(),
   status = CASE WHEN status IN ('enrolling', 'unreachable') THEN 'ready'::node_status ELSE status END,
@@ -110,3 +112,6 @@ WHERE n.status = 'draining'
   AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.node_id = n.id AND a.released_at IS NULL)
 ORDER BY n.id
 FOR UPDATE SKIP LOCKED;
+
+-- name: SetNodeCapabilities :exec
+UPDATE nodes SET accelerator_kinds = $2, max_instances = $3, updated_at = now() WHERE id = $1;

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/St1viG/cj/internal/controlplane/enrollment"
 	"github.com/St1viG/cj/internal/controlplane/gateway"
 	"github.com/St1viG/cj/internal/controlplane/pki"
+	"github.com/St1viG/cj/internal/controlplane/scheduler"
 	"github.com/St1viG/cj/internal/store"
 )
 
@@ -87,6 +89,7 @@ type Server struct {
 	Gateway    *gateway.Server
 	Enrollment *enrollment.Service
 	Nodes      *controller.NodeWatchdog
+	Scheduler  *scheduler.Scheduler
 	// Mux is the API router; services are mounted on it.
 	Mux *http.ServeMux
 }
@@ -109,9 +112,16 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{cfg: cfg, log: log, Store: st, CA: ca, Mux: http.NewServeMux()}
-	s.Gateway = gateway.New(st, log.With("module", "gateway"), gateway.Hooks{})
+	// Anything that changes an instance may free capacity: wake the
+	// scheduler. Hooks run after commit and never block.
+	wake := func(uuid.UUID) { s.Scheduler.Trigger() }
+	s.Gateway = gateway.New(st, log.With("module", "gateway"), gateway.Hooks{InstanceChanged: wake})
+	s.Scheduler = scheduler.New(st, log.With("module", "scheduler"), scheduler.Hooks{NodeChanged: s.Gateway.NodeChanged})
 	s.Enrollment = enrollment.New(st, ca, cfg.GatewayAdvertise, cfg.PublicURL)
-	s.Nodes = &controller.NodeWatchdog{Store: st, Log: log.With("module", "nodes")}
+	s.Nodes = &controller.NodeWatchdog{
+		Store: st, Log: log.With("module", "nodes"),
+		Hooks: controller.Hooks{InstanceChanged: wake, NodeChanged: s.Gateway.NodeChanged},
+	}
 
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -171,6 +181,7 @@ func (s *Server) Serve(ctx context.Context, apiLis, gwLis net.Listener, gwTLS *t
 		return nil
 	})
 	eg.Go(func() error { return s.Nodes.Run(ctx) })
+	eg.Go(func() error { return s.Scheduler.Run(ctx) })
 	eg.Go(func() error {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

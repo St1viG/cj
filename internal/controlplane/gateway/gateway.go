@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -184,7 +185,9 @@ func (s *Server) hello(ctx context.Context, node db.Node, h *agentv1.Hello) (db.
 		var err error
 		node, err = tx.NodeHello(ctx, db.NodeHelloParams{
 			ID: node.ID, AgentVersion: h.GetAgentVersion(), Driver: h.GetDriver(),
-			LastApplied: clampGen(h.GetLastAppliedGeneration()),
+			AcceleratorKinds: acceleratorKinds(h.GetCapabilities()),
+			MaxInstances:     clampI32(h.GetCapabilities().GetMaxInstances()),
+			LastApplied:      clampGen(h.GetLastAppliedGeneration()),
 		})
 		if err != nil {
 			return err
@@ -207,6 +210,17 @@ func (s *Server) hello(ctx context.Context, node db.Node, h *agentv1.Hello) (db.
 		s.instancesChanged(changed)
 	}
 	return node, err
+}
+
+// acceleratorKinds is the Hello's kinds, never nil (the column is NOT NULL).
+func acceleratorKinds(c *agentv1.Capabilities) []string {
+	kinds := []string{}
+	for _, k := range c.GetAcceleratorKinds() {
+		if k != "" && !slices.Contains(kinds, k) {
+			kinds = append(kinds, k)
+		}
+	}
+	return kinds
 }
 
 // handle ingests one message. Sequenced messages are acked only after

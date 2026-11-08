@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/St1viG/cj/internal/controlplane/enrollment"
 	"github.com/St1viG/cj/internal/controlplane/gateway"
 	"github.com/St1viG/cj/internal/controlplane/pki"
+	"github.com/St1viG/cj/internal/controlplane/scheduler"
 	"github.com/St1viG/cj/internal/store"
 	"github.com/St1viG/cj/internal/store/db"
 	"github.com/St1viG/cj/internal/store/storetest"
@@ -166,9 +168,17 @@ func TestRealAgentConvergesThroughGateway(t *testing.T) {
 	}
 
 	node, _ := c.store.GetNode(ctx, nodeID)
+	if !slices.Equal(node.AcceleratorKinds, []string{"nvidia"}) {
+		t.Fatalf("accelerator kinds from Hello = %v, want [nvidia]", node.AcceleratorKinds)
+	}
+
+	// The real scheduler places a GPU instance on it and wakes the gateway.
 	inst := storetest.AddInstance(t, c.store, c.f, c.f.GPUOffer, c.f.GPUImage)
-	storetest.Place(t, c.store, inst, node, gpu)
-	c.gw.NodeChanged(nodeID)
+	sched := scheduler.New(c.store, slog.New(slog.NewTextHandler(io.Discard, nil)), scheduler.Hooks{NodeChanged: c.gw.NodeChanged})
+	p, err := sched.Place(ctx, inst.ID)
+	if err != nil || p.NodeID != nodeID || len(p.Accelerators) != 1 || p.Accelerators[0] != gpu.LocalID {
+		t.Fatalf("placement = %+v, %v", p, err)
+	}
 
 	eventually(t, 10*time.Second, "instance RUNNING", func() bool { return c.phase(t, inst.ID) == db.InstancePhaseRunning })
 	events, _ := c.store.ListInstanceEvents(ctx, inst.ID)
