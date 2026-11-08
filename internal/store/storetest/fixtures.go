@@ -134,6 +134,10 @@ func AddNode(t testing.TB, s *store.Store, siteID uuid.UUID, o NodeOpts) (db.Nod
 	must(t, s.UpsertNodeCapacity(ctx, db.UpsertNodeCapacityParams{
 		NodeID: n.ID, VcpuTotal: o.VCPU, RamMibTotal: o.RAMMiB, DiskGibTotal: o.DiskGiB,
 	}))
+	if o.GPUs > 0 {
+		must(t, s.SetNodeCapabilities(ctx, db.SetNodeCapabilitiesParams{ID: n.ID, AcceleratorKinds: []string{"nvidia"}}))
+		n.AcceleratorKinds = []string{"nvidia"}
+	}
 	accels := make([]db.Accelerator, 0, o.GPUs)
 	for i := range o.GPUs {
 		a, err := s.UpsertAccelerator(ctx, db.UpsertAcceleratorParams{

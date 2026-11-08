@@ -301,6 +301,8 @@ type Node struct {
 	LastSeenAt         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	AcceleratorKinds   []string
+	MaxInstances       int32
 }
 
 type NodeCapacity struct {

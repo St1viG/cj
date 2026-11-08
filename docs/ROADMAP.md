@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 10 of 45 items** (about 8 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
+**Done: 11 of 45 items** (about 9 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -41,7 +41,7 @@
 - [x] P3.2 — Node identity: CA, enrollment, mTLS gateway listener
 - [x] P3.3 — Agent gateway
 - [x] P3.4 — Node lifecycle and demo catalog
-- [ ] P3.5 — Scheduler
+- [x] P3.5 — Scheduler
 - [ ] P3.6 — Instance controller
 - [ ] P3.7 — Public API core and API-key auth
 - [ ] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
@@ -430,13 +430,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** S
 - **As built (2026-11-08):** `controller/node.go` holds the node transition table (`NextNode`, `SetNodeStatus`, `ErrNodeTransition`) that the Partner and Admin services will call; `Schedulable` is true for `READY` only. `NodeWatchdog` sweeps every 10 s, locking rows `FOR UPDATE`: a `READY` node silent for longer than `HeartbeatGrace` (3 × 10 s + 5 s = 35 s) becomes `UNREACHABLE`, and its `RUNNING` instances become `UNREACHABLE` through the instance controller. `SCHEDULED` and `PROVISIONING` instances on that node are left to the provisioning timeout (P3.6), because SPEC §6.3 has no lost-node edge for them. The next Hello makes the node `READY`, and an agent status report of a running VM brings each instance back to `RUNNING`. The watchdog also moves a `DRAINING` node with no active allocations to `MAINTENANCE`. The catalog is `controlplane/catalog/demo.yaml`, embedded in the binary (`kondukter seed catalog --file` overrides it): region `demo`, shapes `cpu-2x2` (2 vCPU, 2 GiB, 20 GiB) and `gpu-gtx1060-1x` (4 vCPU, 8 GiB, 40 GiB, one GTX 1060 6GB), offers at 5 and 40 EUR cents per hour, and `ubuntu-cpu` 24.04 for amd64 and arm64 pinned to the Ubuntu `release-20261017` cloud images with their sha256 digests and sizes. The GPU image entry has no digest yet, so seeding skips it with a message until S5 produces it, and the RTX shape waits for S2b. `seed catalog` migrates first, then upserts; running it twice gives the same rows (verified against the compose database). Tests: the full node transition table, the watchdog with a fake clock (still `READY` at 34 s, `UNREACHABLE` at 36 s with its instance, `READY` again after Hello; worst-case detection is 35 s plus one 10 s sweep, inside the 45 s criterion), drain to maintenance and back, and catalog parsing and idempotent seeding.
 
-#### ☐ P3.5 — Scheduler
+#### ☑ P3.5 — Scheduler
 - **Goal:** Correct placement under concurrency.
 - **Deliverables:** `internal/controlplane/scheduler`: **filter** (node `READY`; region and capacity class match the offer; node arch matches the image; driver supports the accelerator kind; free vCPU/RAM/disk ≥ shape where free = total − reserved − Σ active allocations; ≥ N healthy unallocated accelerators of the requested model; image `accel_stack` compatible with the accelerator model); **score** (fewest remaining free accelerators that still fit, then image already cached on the node per inventory, then round-robin across partners); **commit** in one transaction (`SELECT … FOR UPDATE` on the node row, recompute free from `allocations`, insert allocations with concrete `accelerator_id`s, set `instances.node_id` and phase `SCHEDULED`, bump `nodes.desired_generation`), retrying the next candidate on unique violation or capacity race; invoked by the controller for `PENDING` instances; emits `NodeChanged`.
 - **Acceptance criteria:** Table-driven filter and score tests. Concurrency test against Postgres: 50 goroutines create GPU instances against three simulated nodes with one GPU each → exactly three `SCHEDULED`, the rest `PENDING` then `FAILED(no_capacity)`, and `SELECT accelerator_id FROM allocations WHERE released_at IS NULL GROUP BY 1 HAVING count(*) > 1` is empty; repeated 20× under `-race`. An arm64 image never lands on an amd64 node and vice versa.
 - **Depends on:** P3.4
 - **Decisions required:** ADR-0007, ADR-0009, ADR-0025
 - **Size:** M
+- **As built (2026-11-08):** `internal/controlplane/scheduler` keeps filter and score pure: `Filter(Request, Node)` returns the first reason a node is rejected, `Rank` filters and orders, and `Pick` takes the first N matching accelerators by local id. Candidates come from one query (`ListPlacementNodes`: READY nodes of the region, with free = total − reserved − active allocations, the active instance count, and the partner's latest placement) plus `ListFreeAccelerators`. Score order: fewest free accelerators on the node (which equals fewest left over, since N is fixed per request), then image cached, then the partner that least recently got a placement (round-robin computed from `instances.scheduled_at`, so it holds across restarts), then node id. SPEC §6.5's NUMA preference is left for Later (ADR-0025). The filter also honors the driver's `max_instances`. To filter on the accelerator kinds the driver can attach, migration `00004` adds `nodes.accelerator_kinds` and `nodes.max_instances`, which the gateway now fills from Hello's `Capabilities`. The commit transaction locks the instance and then the node (`FOR UPDATE`), recomputes free capacity with the same query, writes the resource row and one row per accelerator, bumps the generation, sets `SCHEDULED` and appends the `instance_events` row. A capacity race or a `one_active_lease_per_accelerator` violation moves on to the next candidate; a serialization failure or deadlock retries the same one up to three times. After commit it calls `NodeChanged` (the gateway pushes a snapshot). `Scheduler.Run` makes a pass every second and on `Trigger()`, which the gateway and watchdog hooks call whenever an instance changes. The pass places PENDING instances oldest first, and it owns the PENDING > 60 s → `FAILED(no_capacity)` timer: it fails an instance only when no node fits, so P3.6's sweep handles the other timers. Tests: table-driven `Filter` (23 cases) and `Rank`; the acceptance test passes 20 rounds under `-race` (50 goroutines each create and place a GPU instance on three single-GPU nodes: exactly 3 `SCHEDULED`, one per node, and 47 `PENDING`, then `FAILED(no_capacity)` with an event each after the timeout); a vCPU race (a 4-vCPU node takes exactly two 2-vCPU instances); arm64 and amd64 never cross; the commit's rows, generation and hooks. The gateway end-to-end test now places through the real scheduler. The roadmap's duplicate check as written also counts the resource rows, whose NULL `accelerator_id` values all group together, so the test adds `AND accelerator_id IS NOT NULL`.
 
 #### ☐ P3.6 — Instance controller
 - **Goal:** The SPEC §6.3 state machine with timers and events.
@@ -641,11 +642,11 @@ Not scheduled. Collected so nothing is forgotten.
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+1 partly) |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 4 |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 5 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **10 (+2 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **11 (+2 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

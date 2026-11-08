@@ -28,7 +28,7 @@ func (q *Queries) BumpNodeDesiredGeneration(ctx context.Context, id uuid.UUID) (
 const createNode = `-- name: CreateNode :one
 INSERT INTO nodes (site_id, hostname, agent_version, cert_fingerprint, cert_expires_at)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances
 `
 
 type CreateNodeParams struct {
@@ -70,6 +70,8 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
 }
@@ -77,7 +79,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 const createNodeWithID = `-- name: CreateNodeWithID :one
 INSERT INTO nodes (id, site_id, hostname, agent_version, cert_fingerprint, cert_expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances
 `
 
 type CreateNodeWithIDParams struct {
@@ -122,6 +124,8 @@ func (q *Queries) CreateNodeWithID(ctx context.Context, arg CreateNodeWithIDPara
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
 }
@@ -141,7 +145,7 @@ func (q *Queries) DeleteAccelerator(ctx context.Context, arg DeleteAcceleratorPa
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes WHERE id = $1
+SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances FROM nodes WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id uuid.UUID) (Node, error) {
@@ -169,6 +173,8 @@ func (q *Queries) GetNode(ctx context.Context, id uuid.UUID) (Node, error) {
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
 }
@@ -194,7 +200,7 @@ func (q *Queries) GetNodeCapacity(ctx context.Context, nodeID uuid.UUID) (NodeCa
 }
 
 const getNodeForUpdate = `-- name: GetNodeForUpdate :one
-SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes WHERE id = $1 FOR UPDATE
+SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances FROM nodes WHERE id = $1 FOR UPDATE
 `
 
 // Serializes placements on one node (SPEC §6.5 commit step 1).
@@ -223,6 +229,8 @@ func (q *Queries) GetNodeForUpdate(ctx context.Context, id uuid.UUID) (Node, err
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
 }
@@ -293,7 +301,7 @@ func (q *Queries) ListAcceleratorsByNode(ctx context.Context, nodeID uuid.UUID) 
 }
 
 const listEmptyDrainingNodesForUpdate = `-- name: ListEmptyDrainingNodesForUpdate :many
-SELECT n.id, n.site_id, n.hostname, n.arch, n.os, n.kernel, n.driver, n.agent_version, n.status, n.status_reason, n.capacity_class, n.cert_fingerprint, n.cert_expires_at, n.labels, n.advertise_address, n.cached_images, n.desired_generation, n.observed_generation, n.last_seen_at, n.created_at, n.updated_at FROM nodes n
+SELECT n.id, n.site_id, n.hostname, n.arch, n.os, n.kernel, n.driver, n.agent_version, n.status, n.status_reason, n.capacity_class, n.cert_fingerprint, n.cert_expires_at, n.labels, n.advertise_address, n.cached_images, n.desired_generation, n.observed_generation, n.last_seen_at, n.created_at, n.updated_at, n.accelerator_kinds, n.max_instances FROM nodes n
 WHERE n.status = 'draining'
   AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.node_id = n.id AND a.released_at IS NULL)
 ORDER BY n.id
@@ -331,6 +339,8 @@ func (q *Queries) ListEmptyDrainingNodesForUpdate(ctx context.Context) ([]Node, 
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AcceleratorKinds,
+			&i.MaxInstances,
 		); err != nil {
 			return nil, err
 		}
@@ -343,7 +353,7 @@ func (q *Queries) ListEmptyDrainingNodesForUpdate(ctx context.Context) ([]Node, 
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes ORDER BY hostname, id
+SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances FROM nodes ORDER BY hostname, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -377,6 +387,8 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AcceleratorKinds,
+			&i.MaxInstances,
 		); err != nil {
 			return nil, err
 		}
@@ -389,7 +401,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 }
 
 const listNodesBySite = `-- name: ListNodesBySite :many
-SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes WHERE site_id = $1 ORDER BY hostname, id
+SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances FROM nodes WHERE site_id = $1 ORDER BY hostname, id
 `
 
 func (q *Queries) ListNodesBySite(ctx context.Context, siteID uuid.UUID) ([]Node, error) {
@@ -423,6 +435,8 @@ func (q *Queries) ListNodesBySite(ctx context.Context, siteID uuid.UUID) ([]Node
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AcceleratorKinds,
+			&i.MaxInstances,
 		); err != nil {
 			return nil, err
 		}
@@ -435,7 +449,7 @@ func (q *Queries) ListNodesBySite(ctx context.Context, siteID uuid.UUID) ([]Node
 }
 
 const listSilentReadyNodesForUpdate = `-- name: ListSilentReadyNodesForUpdate :many
-SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes
+SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances FROM nodes
 WHERE status = 'ready' AND coalesce(last_seen_at, created_at) < $1::timestamptz
 ORDER BY id
 FOR UPDATE SKIP LOCKED
@@ -473,6 +487,8 @@ func (q *Queries) ListSilentReadyNodesForUpdate(ctx context.Context, cutoff time
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AcceleratorKinds,
+			&i.MaxInstances,
 		); err != nil {
 			return nil, err
 		}
@@ -516,23 +532,27 @@ func (q *Queries) NodeHeartbeat(ctx context.Context, arg NodeHeartbeatParams) er
 const nodeHello = `-- name: NodeHello :one
 UPDATE nodes SET
   agent_version = $1, driver = $2,
-  observed_generation = $3::bigint,
+  accelerator_kinds = coalesce($3::text[], '{}'),
+  max_instances = $4::integer,
+  observed_generation = $5::bigint,
   last_seen_at = now(), updated_at = now(),
   status = CASE WHEN status IN ('enrolling', 'unreachable') THEN 'ready'::node_status ELSE status END,
   status_reason = CASE WHEN status IN ('enrolling', 'unreachable') THEN '' ELSE status_reason END,
   -- An agent ahead of us (re-enrolled with an old local store) would ignore
   -- every snapshot as out of date; jump past its generation.
-  desired_generation = CASE WHEN $3::bigint > desired_generation
-                            THEN $3::bigint + 1 ELSE desired_generation END
-WHERE id = $4
-RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+  desired_generation = CASE WHEN $5::bigint > desired_generation
+                            THEN $5::bigint + 1 ELSE desired_generation END
+WHERE id = $6
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances
 `
 
 type NodeHelloParams struct {
-	AgentVersion string
-	Driver       string
-	LastApplied  int64
-	ID           uuid.UUID
+	AgentVersion     string
+	Driver           string
+	AcceleratorKinds []string
+	MaxInstances     int32
+	LastApplied      int64
+	ID               uuid.UUID
 }
 
 // A Hello makes an enrolling or unreachable node ready; other statuses
@@ -541,6 +561,8 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (Node, err
 	row := q.db.QueryRow(ctx, nodeHello,
 		arg.AgentVersion,
 		arg.Driver,
+		arg.AcceleratorKinds,
+		arg.MaxInstances,
 		arg.LastApplied,
 		arg.ID,
 	)
@@ -567,14 +589,31 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (Node, err
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
+}
+
+const setNodeCapabilities = `-- name: SetNodeCapabilities :exec
+UPDATE nodes SET accelerator_kinds = $2, max_instances = $3, updated_at = now() WHERE id = $1
+`
+
+type SetNodeCapabilitiesParams struct {
+	ID               uuid.UUID
+	AcceleratorKinds []string
+	MaxInstances     int32
+}
+
+func (q *Queries) SetNodeCapabilities(ctx context.Context, arg SetNodeCapabilitiesParams) error {
+	_, err := q.db.Exec(ctx, setNodeCapabilities, arg.ID, arg.AcceleratorKinds, arg.MaxInstances)
+	return err
 }
 
 const setNodeStatus = `-- name: SetNodeStatus :one
 UPDATE nodes SET status = $2, status_reason = $3, updated_at = now()
 WHERE id = $1
-RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances
 `
 
 type SetNodeStatusParams struct {
@@ -608,6 +647,8 @@ func (q *Queries) SetNodeStatus(ctx context.Context, arg SetNodeStatusParams) (N
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
 }
@@ -617,7 +658,7 @@ UPDATE nodes SET
   hostname = $2, arch = $3, os = $4, kernel = $5, driver = $6,
   advertise_address = $7, labels = $8, cached_images = $9, updated_at = now()
 WHERE id = $1
-RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at, accelerator_kinds, max_instances
 `
 
 type UpdateNodeInventoryParams struct {
@@ -667,6 +708,8 @@ func (q *Queries) UpdateNodeInventory(ctx context.Context, arg UpdateNodeInvento
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AcceleratorKinds,
+		&i.MaxInstances,
 	)
 	return i, err
 }
