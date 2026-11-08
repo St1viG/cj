@@ -14,15 +14,22 @@ BUF           ?= buf
 ENV_FILE ?= $(if $(wildcard .env),.env,.env.example)
 COMPOSE  ?= docker compose -f deploy/compose/compose.yaml --env-file $(ENV_FILE)
 
+# Postgres URL for migrations and tests: the environment wins, else the env file.
+DATABASE_URL ?= $(or $(KONDUKTER_DATABASE_URL),$(shell sed -n 's/^KONDUKTER_DATABASE_URL=//p' $(ENV_FILE)))
+
+# sqlc is pinned and run through `go run` so generated code is identical everywhere.
+SQLC_VERSION ?= v1.31.1
+SQLC         ?= $(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+
 # Git ref the proto contract must stay compatible with (buf breaking, FILE).
 # CI overrides it, e.g. BUF_AGAINST_REF=origin/main.
 BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
-.PHONY: help tools gen build test lint fmt clean db-up db-down db-psql
+.PHONY: help tools gen sqlc build test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
 
 help: ## List targets
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 tools: ## Install the toolchain: Brewfile, pinned Go codegen plugins, pinned protoc-gen-es
 	brew bundle install --file=Brewfile --no-upgrade
@@ -30,14 +37,18 @@ tools: ## Install the toolchain: Brewfile, pinned Go codegen plugins, pinned pro
 	$(GO) build tool
 	pnpm install --frozen-lockfile
 
-gen: ## Generate gen/go and gen/ts from proto/ (SQL codegen joins in P3.1)
+gen: ## Generate gen/go and gen/ts from proto/, internal/store/db from SQL
 	$(BUF) generate
+	$(SQLC) generate
+
+sqlc: ## Generate internal/store/db from internal/store/{migrations,queries}
+	$(SQLC) generate
 
 build: ## Build kondukter, kondukter-agent and kctl into bin/
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
 
-test: ## Run Go tests with the race detector
-	$(GO) test -race ./...
+test: ## Run Go tests with the race detector (DB tests skip if Postgres is down)
+	KONDUKTER_DATABASE_URL='$(DATABASE_URL)' $(GO) test -race ./...
 
 lint: ## buf lint + breaking check, go vet, golangci-lint (linters and format check)
 	$(BUF) lint
@@ -62,6 +73,15 @@ db-down: ## Stop the compose stack; V=1 also deletes the Postgres volume
 db-psql: ## Open psql in the Postgres container (pipe SQL in, or pass PSQL_ARGS)
 	$(COMPOSE) exec $(if $(shell [ -t 0 ] && echo tty),,-T) postgres \
 		sh -c 'exec psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" $(PSQL_ARGS)'
+
+migrate-up: ## Apply pending migrations to DATABASE_URL
+	$(GO) run ./cmd/kondukter migrate up --database-url '$(DATABASE_URL)'
+
+migrate-down: ## Roll back the most recent migration on DATABASE_URL
+	$(GO) run ./cmd/kondukter migrate down --database-url '$(DATABASE_URL)'
+
+migrate-status: ## Show which migrations DATABASE_URL has applied
+	$(GO) run ./cmd/kondukter migrate status --database-url '$(DATABASE_URL)'
 
 clean: ## Remove build output
 	rm -rf $(BIN)
