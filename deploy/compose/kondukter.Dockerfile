@@ -2,11 +2,24 @@
 # Builds the kondukter control-plane image. Build context: the repo root.
 # Generated code (gen/) is committed, so no codegen tools are needed here.
 
+# The web app (web/, ADR-0022) is built first; the Go build embeds web/dist.
+FROM node:26-slim AS web
+RUN npm install --global pnpm@11
+WORKDIR /src
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web/package.json web/package.json
+RUN pnpm install --frozen-lockfile
+# The generated client is imported from outside web/ (gen/ts).
+COPY gen/ts gen/ts
+COPY web web
+RUN pnpm --dir web build
+
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=web /src/web/dist web/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
       -ldflags "-X github.com/St1viG/cj/internal/version.Version=${VERSION}" \
