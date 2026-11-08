@@ -23,6 +23,9 @@ import (
 	"github.com/St1viG/cj/internal/store/db"
 )
 
+// errResync ends a stream whose node must send a fresh Hello.
+var errResync = errors.New("gateway: node must reconnect")
+
 // Notifier is told when a node's desired state changed (SPEC §6.5 commit
 // step 5). In-process in the demo (ADR-0017); LISTEN/NOTIFY with replicas.
 type Notifier interface {
@@ -171,6 +174,10 @@ func (s *Server) Connect(stream agentv1.AgentGateway_ConnectServer) error {
 			}
 		case m := <-msgs:
 			if err := s.handle(ctx, stream, node.ID, driver, m); err != nil {
+				if errors.Is(err, errResync) {
+					log.Info("node was marked unreachable while connected; asking it to reconnect")
+					return status.Error(codes.Unavailable, "node was marked unreachable; reconnect")
+				}
 				log.Error("ingest failed; closing the stream so the agent resends", "seq", m.GetSeq(), "err", err)
 				return status.Error(codes.Internal, "ingest failed")
 			}
@@ -232,10 +239,17 @@ func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_Connect
 	)
 	switch b := m.Body.(type) {
 	case *agentv1.AgentMessage_Heartbeat:
-		if err := s.store.NodeHeartbeat(ctx, db.NodeHeartbeatParams{
+		st, err := s.store.NodeHeartbeat(ctx, db.NodeHeartbeatParams{
 			ID: nodeID, ObservedGeneration: clampGen(b.Heartbeat.GetAppliedGeneration()),
-		}); err != nil {
+		})
+		if err != nil {
 			return err
+		}
+		if st == db.NodeStatusUnreachable {
+			// The watchdog gave up on this stream while it was still open.
+			// Only a Hello re-reports every instance, so make the agent
+			// reconnect.
+			return errResync
 		}
 	case *agentv1.AgentMessage_Inventory:
 		if err := s.store.WithTx(ctx, func(tx store.Tx) error {

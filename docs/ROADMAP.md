@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 11 of 45 items** (about 9 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
+**Done: 12 of 45 items** (about 10 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -42,7 +42,7 @@
 - [x] P3.3 — Agent gateway
 - [x] P3.4 — Node lifecycle and demo catalog
 - [x] P3.5 — Scheduler
-- [ ] P3.6 — Instance controller
+- [x] P3.6 — Instance controller
 - [ ] P3.7 — Public API core and API-key auth
 - [ ] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
 - [ ] P3.9 — `kctl` CLI
@@ -439,13 +439,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** `internal/controlplane/scheduler` keeps filter and score pure: `Filter(Request, Node)` returns the first reason a node is rejected, `Rank` filters and orders, and `Pick` takes the first N matching accelerators by local id. Candidates come from one query (`ListPlacementNodes`: READY nodes of the region, with free = total − reserved − active allocations, the active instance count, and the partner's latest placement) plus `ListFreeAccelerators`. Score order: fewest free accelerators on the node (which equals fewest left over, since N is fixed per request), then image cached, then the partner that least recently got a placement (round-robin computed from `instances.scheduled_at`, so it holds across restarts), then node id. SPEC §6.5's NUMA preference is left for Later (ADR-0025). The filter also honors the driver's `max_instances`. To filter on the accelerator kinds the driver can attach, migration `00004` adds `nodes.accelerator_kinds` and `nodes.max_instances`, which the gateway now fills from Hello's `Capabilities`. The commit transaction locks the instance and then the node (`FOR UPDATE`), recomputes free capacity with the same query, writes the resource row and one row per accelerator, bumps the generation, sets `SCHEDULED` and appends the `instance_events` row. A capacity race or a `one_active_lease_per_accelerator` violation moves on to the next candidate; a serialization failure or deadlock retries the same one up to three times. After commit it calls `NodeChanged` (the gateway pushes a snapshot). `Scheduler.Run` makes a pass every second and on `Trigger()`, which the gateway and watchdog hooks call whenever an instance changes. The pass places PENDING instances oldest first, and it owns the PENDING > 60 s → `FAILED(no_capacity)` timer: it fails an instance only when no node fits, so P3.6's sweep handles the other timers. Tests: table-driven `Filter` (23 cases) and `Rank`; the acceptance test passes 20 rounds under `-race` (50 goroutines each create and place a GPU instance on three single-GPU nodes: exactly 3 `SCHEDULED`, one per node, and 47 `PENDING`, then `FAILED(no_capacity)` with an event each after the timeout); a vCPU race (a 4-vCPU node takes exactly two 2-vCPU instances); arm64 and amd64 never cross; the commit's rows, generation and hooks. The gateway end-to-end test now places through the real scheduler. The roadmap's duplicate check as written also counts the resource rows, whose NULL `accelerator_id` values all group together, so the test adds `AND accelerator_id IS NOT NULL`.
 
-#### ☐ P3.6 — Instance controller
+#### ☑ P3.6 — Instance controller
 - **Goal:** The SPEC §6.3 state machine with timers and events.
 - **Deliverables:** `internal/controlplane/controller/instance.go`: transitions as a table-driven pure function `(phase, event) → phase`; every transition appends to `instance_events` in the same transaction; a 5 s sweep applies timers — `PENDING` > 60 s → `FAILED(no_capacity)`; `SCHEDULED`/`PROVISIONING` > 10 min → `FAILED(provision_timeout)` with allocations released and the node generation bumped so the agent deletes; `UNREACHABLE` > 15 min → `LOST` with allocations released. Terminate: `RUNNING → TERMINATING` marks the instance undesired and bumps the generation (snapshot omits it); the agent's deletion report → `TERMINATED` and allocations released. Node `UNREACHABLE` → its instances `UNREACHABLE`; a Hello still observing the instance running → `RUNNING`. `connection` jsonb filled from `PortMapping`s on `RUNNING`.
 - **Acceptance criteria:** Transition tests cover every edge in SPEC §6.3 and reject every other pair. Integration with gateway and agent (mock driver with configurable delay): create → `RUNNING` in under 5 s; terminate → `TERMINATED` with `allocations.released_at` set; agent stopped → `UNREACHABLE` within 45 s → agent started → `RUNNING`; mock provisioning failure → `FAILED` carrying the driver's reason; timers tested with an injectable clock.
 - **Depends on:** P3.5
 - **Decisions required:** ADR-0002, ADR-0025, D-23 (timers only)
 - **Size:** M
+- **As built (2026-11-08):** The transition table, `Transition` and agent status ingest landed with P3.3. P3.6 adds `controller.InstanceController`. Its `Terminate` locks the instance: a placed instance goes to TERMINATING (undesired, generation bumped, node notified), a PENDING one ends TERMINATED at once, a repeat is a no-op, and an ended instance returns `ErrTerminal`. Its 5 s sweep (`Sweep`, injectable `Now`) runs the timers: SCHEDULED or PROVISIONING for more than 10 min counted from `scheduled_at` → `FAILED(provision_timeout)`, and UNREACHABLE for more than 15 min → `LOST(unreachable_timeout)`. Both release allocations and bump the generation, so the agent deletes the VM if it still has it. The PENDING → `FAILED(no_capacity)` timer lives in the scheduler (P3.5). The table now also lists SCHEDULED + provision_timeout, because the timer runs from placement. Fixes found on the way: migration `00005` lets a TERMINATED instance have no node (terminating a PENDING one violated the schema's check), and a heartbeat from a node the watchdog marked UNREACHABLE while its stream was still open now ends the stream with `Unavailable`. The agent reconnects and its Hello re-reports every instance; before this fix the node stayed UNREACHABLE and its instances would have gone LOST. `kondukter serve` runs the controller beside the scheduler and watchdog, and every hook that changes an instance wakes the scheduler. Tests: every (phase, event) pair is checked against the SPEC §6.3 edges plus the documented extensions, and every other pair must be rejected; the timers with a fake clock (nothing at 9 or 14 min, expired at 11 or 16 min, allocations released, generation bumped); `Terminate` from each phase. A full-wiring test through `server.Serve` with two enrolled mock agents covers: a CPU instance on the failing node ends `FAILED` with the driver's reason; a GPU instance reaches RUNNING in about 0.6 s; stopping its agent with the watchdog clock skewed by 45 s gives node and instance UNREACHABLE; restarting the agent brings both back to READY and RUNNING; terminating ends TERMINATED with both allocations released; the freed GPU takes the next instance. A second test covers the marked-unreachable-while-connected recovery and fails without the fix. Connection info from port mappings is covered at ingest; real mappings arrive with the access module (P2.7).
 
 #### ☐ P3.7 — Public API core and API-key auth
 - **Goal:** Customers can do everything the demo needs over Connect.
@@ -642,11 +643,11 @@ Not scheduled. Collected so nothing is forgotten.
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+1 partly) |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 5 |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 6 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **11 (+2 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **12 (+2 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

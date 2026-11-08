@@ -90,6 +90,7 @@ type Server struct {
 	Enrollment *enrollment.Service
 	Nodes      *controller.NodeWatchdog
 	Scheduler  *scheduler.Scheduler
+	Instances  *controller.InstanceController
 	// Mux is the API router; services are mounted on it.
 	Mux *http.ServeMux
 }
@@ -118,10 +119,9 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	s.Gateway = gateway.New(st, log.With("module", "gateway"), gateway.Hooks{InstanceChanged: wake})
 	s.Scheduler = scheduler.New(st, log.With("module", "scheduler"), scheduler.Hooks{NodeChanged: s.Gateway.NodeChanged})
 	s.Enrollment = enrollment.New(st, ca, cfg.GatewayAdvertise, cfg.PublicURL)
-	s.Nodes = &controller.NodeWatchdog{
-		Store: st, Log: log.With("module", "nodes"),
-		Hooks: controller.Hooks{InstanceChanged: wake, NodeChanged: s.Gateway.NodeChanged},
-	}
+	hooks := controller.Hooks{InstanceChanged: wake, NodeChanged: s.Gateway.NodeChanged}
+	s.Nodes = &controller.NodeWatchdog{Store: st, Log: log.With("module", "nodes"), Hooks: hooks}
+	s.Instances = &controller.InstanceController{Store: st, Log: log.With("module", "instances"), Hooks: hooks}
 
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -182,6 +182,7 @@ func (s *Server) Serve(ctx context.Context, apiLis, gwLis net.Listener, gwTLS *t
 	})
 	eg.Go(func() error { return s.Nodes.Run(ctx) })
 	eg.Go(func() error { return s.Scheduler.Run(ctx) })
+	eg.Go(func() error { return s.Instances.Run(ctx) })
 	eg.Go(func() error {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

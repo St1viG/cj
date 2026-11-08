@@ -31,6 +31,12 @@ const (
 	EvAgentDeleted     Event = "agent_deleted"     // agent confirms the VM and disks are gone
 )
 
+// AllEvents lists every instance event.
+var AllEvents = []Event{
+	EvPlaced, EvScheduleTimeout, EvAgentApplied, EvAgentRunning, EvAgentFailed, EvProvisionTimeout,
+	EvTerminate, EvNodeLost, EvNodeBack, EvLostTimeout, EvAgentDeleted,
+}
+
 // transitions is SPEC §6.3. Beyond the diagram, terminate is accepted from
 // every non-terminal phase so a stuck instance can always be stopped: a
 // PENDING instance has nothing to delete and ends TERMINATED at once.

@@ -83,8 +83,9 @@ UPDATE nodes SET
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
--- name: NodeHeartbeat :exec
-UPDATE nodes SET last_seen_at = now(), observed_generation = $2 WHERE id = $1;
+-- name: NodeHeartbeat :one
+UPDATE nodes SET last_seen_at = now(), observed_generation = $2 WHERE id = $1
+RETURNING status;
 
 -- name: ListAcceleratorLocalIDsInUse :many
 -- Accelerators of a node held by an active allocation.
