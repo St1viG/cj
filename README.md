@@ -41,6 +41,7 @@ bin/kondukter-agent --config agent.yaml enroll --server http://localhost:8080 --
 bin/kondukter-agent --config agent.yaml run         # driver: mock needs no VMM
 KDK_API_KEY=kdk_… hack/api-smoke.sh                 # list offers → create → watch RUNNING → terminate
 KDK_API_KEY=kdk_… hack/kctl-smoke.sh                # the same through bin/kctl (KDK_ARCH=arm64 for a Mac-like node)
+KDK_API_KEY=kdk_<partner> bin/kdk-sim              # instead of a real agent: 2+2 CPU nodes and a GPU node (--help)
 ```
 
 ## Demo fleet

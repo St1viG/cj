@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -50,16 +51,41 @@ type Server struct {
 
 	mu       sync.Mutex
 	sessions map[uuid.UUID]*session
+
+	// RepushAfter is how long a node may report an applied generation below
+	// the desired one before it gets the snapshot again (a lost snapshot).
+	// Zero means DefaultRepushAfter.
+	RepushAfter time.Duration
 }
+
+// DefaultRepushAfter is three heartbeat intervals.
+const DefaultRepushAfter = 3 * agentproto.HeartbeatInterval
 
 var _ Notifier = (*Server)(nil)
 
 type session struct {
 	kick   chan struct{}
 	cancel context.CancelCauseFunc
+	// pushedAt is when the last snapshot went out; only the stream's own
+	// goroutine touches it.
+	pushedAt time.Time
 }
 
-var errReplaced = errors.New("replaced by a newer stream from the same node")
+var (
+	errReplaced = errors.New("replaced by a newer stream from the same node")
+	errShutdown = errors.New("gateway shutting down")
+)
+
+// Shutdown ends every agent stream with Unavailable, so the agents
+// reconnect (to this process's successor) instead of holding up a
+// graceful stop. New streams are still accepted until the server stops.
+func (s *Server) Shutdown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sess := range s.sessions {
+		sess.cancel(errShutdown)
+	}
+}
 
 // New returns a gateway handler.
 func New(s *store.Store, log *slog.Logger, hooks Hooks) *Server {
@@ -134,7 +160,7 @@ func (s *Server) Connect(stream agentv1.AgentGateway_ConnectServer) error {
 		log.Info("agent disconnected", "reason", context.Cause(ctx))
 	}()
 
-	if err := s.pushSnapshot(ctx, stream, node.ID); err != nil {
+	if err := s.push(ctx, stream, sess, node.ID); err != nil {
 		return err
 	}
 
@@ -159,21 +185,23 @@ func (s *Server) Connect(stream agentv1.AgentGateway_ConnectServer) error {
 	for {
 		select {
 		case <-ctx.Done():
-			if errors.Is(context.Cause(ctx), errReplaced) {
-				return status.Error(codes.Aborted, errReplaced.Error())
-			}
-			return status.FromContextError(ctx.Err()).Err()
+			return endStatus(ctx)
 		case err := <-recvErr:
 			if errors.Is(err, io.EOF) || status.Code(err) == codes.Canceled {
 				return nil
 			}
 			return err
 		case <-sess.kick:
-			if err := s.pushSnapshot(ctx, stream, node.ID); err != nil {
+			if err := s.push(ctx, stream, sess, node.ID); err != nil {
 				return err
 			}
 		case m := <-msgs:
-			if err := s.handle(ctx, stream, node.ID, driver, m); err != nil {
+			if err := s.handle(ctx, stream, sess, node.ID, driver, m); err != nil {
+				if ctx.Err() != nil {
+					// Canceled mid-ingest (shutdown, a newer stream, the agent
+					// left): nothing was acked, the agent resends.
+					return endStatus(ctx)
+				}
 				if errors.Is(err, errResync) {
 					log.Info("node was marked unreachable while connected; asking it to reconnect")
 					return status.Error(codes.Unavailable, "node was marked unreachable; reconnect")
@@ -183,6 +211,17 @@ func (s *Server) Connect(stream agentv1.AgentGateway_ConnectServer) error {
 			}
 		}
 	}
+}
+
+// endStatus is the status a stream ends with once its context is done.
+func endStatus(ctx context.Context) error {
+	switch cause := context.Cause(ctx); {
+	case errors.Is(cause, errReplaced):
+		return status.Error(codes.Aborted, errReplaced.Error())
+	case errors.Is(cause, errShutdown):
+		return status.Error(codes.Unavailable, errShutdown.Error())
+	}
+	return status.FromContextError(ctx.Err()).Err()
 }
 
 // hello marks the node connected and ingests the agent's observed instances.
@@ -232,24 +271,28 @@ func acceleratorKinds(c *agentv1.Capabilities) []string {
 
 // handle ingests one message. Sequenced messages are acked only after
 // their transaction commits.
-func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_ConnectServer, nodeID uuid.UUID, driver string, m *agentv1.AgentMessage) error {
+func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_ConnectServer, sess *session, nodeID uuid.UUID, driver string, m *agentv1.AgentMessage) error {
 	var (
 		changed     []uuid.UUID
 		nodeChanged bool
 	)
 	switch b := m.Body.(type) {
 	case *agentv1.AgentMessage_Heartbeat:
-		st, err := s.store.NodeHeartbeat(ctx, db.NodeHeartbeatParams{
-			ID: nodeID, ObservedGeneration: clampGen(b.Heartbeat.GetAppliedGeneration()),
-		})
+		applied := clampGen(b.Heartbeat.GetAppliedGeneration())
+		row, err := s.store.NodeHeartbeat(ctx, db.NodeHeartbeatParams{ID: nodeID, ObservedGeneration: applied})
 		if err != nil {
 			return err
 		}
-		if st == db.NodeStatusUnreachable {
+		if row.Status == db.NodeStatusUnreachable {
 			// The watchdog gave up on this stream while it was still open.
 			// Only a Hello re-reports every instance, so make the agent
 			// reconnect.
 			return errResync
+		}
+		if applied < row.DesiredGeneration && time.Since(sess.pushedAt) >= s.repushAfter() {
+			s.log.Info("agent is behind its snapshot; pushing it again", "node", nodeID.String(),
+				"applied_generation", applied, "desired_generation", row.DesiredGeneration)
+			nodeChanged = true
 		}
 	case *agentv1.AgentMessage_Inventory:
 		if err := s.store.WithTx(ctx, func(tx store.Tx) error {
@@ -315,11 +358,24 @@ func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_Connect
 	}
 	s.instancesChanged(changed)
 	if nodeChanged {
-		if err := s.pushSnapshot(ctx, stream, nodeID); err != nil {
+		if err := s.push(ctx, stream, sess, nodeID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// push sends the snapshot and notes when.
+func (s *Server) push(ctx context.Context, stream agentv1.AgentGateway_ConnectServer, sess *session, nodeID uuid.UUID) error {
+	sess.pushedAt = time.Now()
+	return s.pushSnapshot(ctx, stream, nodeID)
+}
+
+func (s *Server) repushAfter() time.Duration {
+	if s.RepushAfter > 0 {
+		return s.RepushAfter
+	}
+	return DefaultRepushAfter
 }
 
 func (s *Server) instancesChanged(ids []uuid.UUID) {

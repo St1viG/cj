@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,8 +130,9 @@ func (s *Scheduler) Pass(ctx context.Context) (Report, error) {
 		return rep, err
 	}
 	var errs []error
+	pc := &passCache{fleet: map[string][]Node{}, offers: map[uuid.UUID]db.GetOfferRow{}, images: map[uuid.UUID]db.Image{}}
 	for _, inst := range pending {
-		_, err := s.Place(ctx, inst.ID)
+		_, err := s.place(ctx, inst, pc)
 		switch {
 		case err == nil:
 			rep.Placed++
@@ -164,16 +166,41 @@ func (s *Scheduler) Place(ctx context.Context, instanceID uuid.UUID) (Placement,
 	if err != nil {
 		return Placement{}, store.NotFound(err)
 	}
+	return s.place(ctx, inst, nil)
+}
+
+// passCache shares reads across one pass: the fleet snapshot per region
+// (updated in memory after each placement; every commit re-checks its
+// node under the row lock, so a stale entry only costs a retry) and the
+// offers and images of the pending instances.
+type passCache struct {
+	fleet  map[string][]Node
+	offers map[uuid.UUID]db.GetOfferRow
+	images map[uuid.UUID]db.Image
+}
+
+func (s *Scheduler) place(ctx context.Context, inst db.Instance, pc *passCache) (Placement, error) {
 	if inst.Phase != db.InstancePhasePending || !inst.Desired {
 		return Placement{}, ErrNotPending
 	}
-	req, err := s.request(ctx, inst)
+	req, err := s.request(ctx, inst, pc)
 	if err != nil {
 		return Placement{}, err
 	}
-	nodes, err := loadNodes(ctx, s.Store.Queries, req.Region, nil)
-	if err != nil {
-		return Placement{}, err
+	var nodes []Node
+	if pc != nil {
+		nodes = pc.fleet[req.Region]
+	}
+	if nodes == nil {
+		if nodes, err = loadNodes(ctx, s.Store.Queries, req.Region, nil); err != nil {
+			return Placement{}, err
+		}
+		if pc != nil {
+			if nodes == nil {
+				nodes = []Node{}
+			}
+			pc.fleet[req.Region] = nodes
+		}
 	}
 	ranked := Rank(req, nodes)
 	for _, cand := range ranked {
@@ -182,6 +209,9 @@ func (s *Scheduler) Place(ctx context.Context, instanceID uuid.UUID) (Placement,
 		case err == nil:
 			s.Log.Info("instance placed", "instance", inst.ID, "node", p.NodeID, "hostname", p.Hostname,
 				"accelerators", p.Accelerators, "generation", p.Generation)
+			if pc != nil {
+				pc.applied(req, p)
+			}
 			if s.Hooks.NodeChanged != nil {
 				s.Hooks.NodeChanged(p.NodeID)
 			}
@@ -201,19 +231,61 @@ func (s *Scheduler) Place(ctx context.Context, instanceID uuid.UUID) (Placement,
 	return Placement{}, fmt.Errorf("%w: %s", ErrNoCapacity, Explain(req, nodes))
 }
 
+// applied updates the pass's fleet snapshot after a placement.
+func (pc *passCache) applied(req Request, p Placement) {
+	nodes := pc.fleet[req.Region]
+	var partner uuid.UUID
+	for i := range nodes {
+		n := &nodes[i]
+		if n.ID != p.NodeID {
+			continue
+		}
+		partner = n.PartnerID
+		n.FreeVCPU -= req.VCPU
+		n.FreeRAMMiB -= req.RAMMiB
+		n.FreeDiskGiB -= req.DiskGiB
+		n.ActiveInstances++
+		n.FreeAccelerators = slices.DeleteFunc(slices.Clone(n.FreeAccelerators), func(a Accelerator) bool {
+			return slices.Contains(p.Accelerators, a.LocalID)
+		})
+	}
+	now := time.Now()
+	for i := range nodes {
+		if nodes[i].PartnerID == partner {
+			nodes[i].PartnerLastPlacedAt = now
+		}
+	}
+}
+
 // request builds what inst needs from its spec, offer, shape and image.
-func (s *Scheduler) request(ctx context.Context, inst db.Instance) (Request, error) {
+func (s *Scheduler) request(ctx context.Context, inst db.Instance, pc *passCache) (Request, error) {
 	spec, err := store.ParseSpec(inst.Spec)
 	if err != nil {
 		return Request{}, err
 	}
-	offer, err := s.Store.GetOffer(ctx, inst.OfferID)
-	if err != nil {
-		return Request{}, fmt.Errorf("scheduler: offer %s: %w", inst.OfferID, store.NotFound(err))
+	offer, ok := db.GetOfferRow{}, false
+	if pc != nil {
+		offer, ok = pc.offers[inst.OfferID]
 	}
-	img, err := s.Store.GetImage(ctx, inst.ImageID)
-	if err != nil {
-		return Request{}, fmt.Errorf("scheduler: image %s: %w", inst.ImageID, store.NotFound(err))
+	if !ok {
+		if offer, err = s.Store.GetOffer(ctx, inst.OfferID); err != nil {
+			return Request{}, fmt.Errorf("scheduler: offer %s: %w", inst.OfferID, store.NotFound(err))
+		}
+		if pc != nil {
+			pc.offers[inst.OfferID] = offer
+		}
+	}
+	img, ok := db.Image{}, false
+	if pc != nil {
+		img, ok = pc.images[inst.ImageID]
+	}
+	if !ok {
+		if img, err = s.Store.GetImage(ctx, inst.ImageID); err != nil {
+			return Request{}, fmt.Errorf("scheduler: image %s: %w", inst.ImageID, store.NotFound(err))
+		}
+		if pc != nil {
+			pc.images[inst.ImageID] = img
+		}
 	}
 	arch := spec.Image.Arch
 	if arch == "" {

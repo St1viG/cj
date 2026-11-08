@@ -353,3 +353,60 @@ func waitFor(t *testing.T, within time.Duration, what string, cond func() bool) 
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// dropFirst drops the first outbound InstanceStatus for one instance id.
+type dropFirst struct {
+	mu      sync.Mutex
+	id      string
+	dropped bool
+}
+
+func (d *dropFirst) Outbound(m *agentv1.AgentMessage) []*agentv1.AgentMessage {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.dropped && m.GetInstanceStatus().GetId() == d.id {
+		d.dropped = true
+		return nil
+	}
+	return []*agentv1.AgentMessage{m}
+}
+
+func (d *dropFirst) Inbound(m *agentv1.ControlMessage) []*agentv1.ControlMessage {
+	return []*agentv1.ControlMessage{m}
+}
+
+// TestLostMessageIsRetransmitted: a message lost while the stream stays up
+// is not confirmed by the ack of a later one, and is resent after
+// RetransmitAfter on the same connection.
+func TestLostMessageIsRetransmitted(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeDesired(t, dir, "generation: 1\n")
+	rec := &recorder{}
+	gw := startGateway(t, dir, rec)
+	faults := &dropFirst{id: "lost"}
+	h := newHandler()
+	c, st := startClient(t, stream.Config{
+		Address: gw.addr, HeartbeatInterval: 100 * time.Millisecond, RetransmitAfter: 500 * time.Millisecond, Faults: faults,
+	}, h)
+	waitSnapshot(t, h, 1, 5*time.Second)
+
+	lostSeq, err := c.Enqueue(statusMsg("lost"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Enqueue(statusMsg("next")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, "the later message acked", func() bool { return rec.seqCounts()[lostSeq+1] == 1 })
+	if pending, _ := st.Pending(0, 0); len(pending) != 1 || pending[0].Seq != lostSeq {
+		t.Fatalf("pending after the later ack = %v, want only the lost seq %d", pending, lostSeq)
+	}
+	waitFor(t, 5*time.Second, "the lost message retransmitted and acked", func() bool {
+		o, _ := st.Outbox()
+		return rec.seqCounts()[lostSeq] == 1 && o.Len == 0
+	})
+	if !faults.dropped {
+		t.Fatal("the fault never fired")
+	}
+}

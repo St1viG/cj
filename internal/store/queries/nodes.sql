@@ -85,7 +85,7 @@ RETURNING *;
 
 -- name: NodeHeartbeat :one
 UPDATE nodes SET last_seen_at = now(), observed_generation = $2 WHERE id = $1
-RETURNING status;
+RETURNING status, desired_generation;
 
 -- name: ListAcceleratorLocalIDsInUse :many
 -- Accelerators of a node held by an active allocation.
