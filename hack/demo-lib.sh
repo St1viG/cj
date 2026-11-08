@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# demo-lib.sh — helpers shared by demo.sh and demo-failure.sh. Source it
-# after `set -euo pipefail`; it changes to the repo root.
+# demo-lib.sh — helpers shared by demo.sh, demo-happy.sh and demo-failure.sh.
+# Source it after `set -euo pipefail`; it changes to the repo root.
 #
 #   DEMO_ENV_FILE        env file (default .env)
 #   KONDUKTER_API_PORT, KONDUKTER_GATEWAY_PORT, KONDUKTER_IMAGES_PORT
@@ -28,6 +28,22 @@ say() { echo "${me:-demo}: $*"; }
 warn() { echo "${me:-demo}: $*" >&2; }
 die() { echo "${me:-demo}: $*" >&2; exit 1; }
 compose() { docker compose -f deploy/compose/compose.yaml --env-file "$env_file" "$@"; }
+
+# Timestamped lines for the drills: bad records a failed check in $fail and
+# carries on, so a run reports every failure before it exits non-zero.
+# shellcheck disable=SC2034 # the sourcing script reads $fail
+fail=0
+ts() { date +%T; }
+now() { date +%s; }
+log() { echo "[$(ts)] $*"; }
+ok() { log "ok: $*"; }
+# shellcheck disable=SC2034
+bad() {
+	log "FAIL: $*" >&2
+	fail=1
+}
+# short strips the enum prefix from INSTANCE_PHASE_RUNNING and the like.
+short() { sed 's/^INSTANCE_PHASE_//; s/^NODE_STATUS_//'; }
 for tool in docker jq curl; do
 	command -v "$tool" >/dev/null || die "$tool not found"
 done

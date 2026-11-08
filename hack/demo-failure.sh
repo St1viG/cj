@@ -56,17 +56,6 @@ cleanup() {
 	rm -rf "$tmp"
 }
 trap cleanup EXIT
-fail=0
-
-ts() { date +%T; }
-now() { date +%s; }
-log() { echo "[$(ts)] $*"; }
-ok() { log "ok: $*"; }
-bad() {
-	log "FAIL: $*" >&2
-	fail=1
-}
-short() { sed 's/^INSTANCE_PHASE_//; s/^NODE_STATUS_//'; }
 
 # as ROLE rpc… calls rpc with ROLE's session (customer, partner, operator).
 as() {
