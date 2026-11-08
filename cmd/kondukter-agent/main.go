@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/St1viG/cj/internal/agent"
 	"github.com/St1viG/cj/internal/agent/config"
+	"github.com/St1viG/cj/internal/agent/inventory"
 	"github.com/St1viG/cj/internal/logging"
 	"github.com/St1viG/cj/internal/version"
 )
@@ -38,7 +41,7 @@ func newRootCmd() *cobra.Command {
 	}
 	root.SetVersionTemplate(version.String("kondukter-agent") + "\n")
 	root.PersistentFlags().String("config", config.DefaultPath(), "path to the agent config file")
-	root.AddCommand(newRunCmd(), newEnrollCmd(), newVersionCmd())
+	root.AddCommand(newRunCmd(), newEnrollCmd(), newInventoryCmd(), newVersionCmd())
 	return root
 }
 
@@ -93,4 +96,51 @@ func newEnrollCmd() *cobra.Command {
 	cmd.Flags().String("server", "", "Kondukter API URL")
 	cmd.Flags().String("token", "", "one-time enrollment token")
 	return cmd
+}
+
+func newInventoryCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "inventory",
+		Short: "Discover this host and print the Inventory the agent would report",
+		Long: "Discovers CPUs, memory, disk and NVIDIA GPUs (with passthrough health) " +
+			"and prints them as JSON. Reservations and labels come from the config if it loads.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path, _ := cmd.Flags().GetString("config")
+			cfg, err := config.Load(path)
+			if err != nil {
+				cfg = config.Default()
+				fmt.Fprintf(cmd.ErrOrStderr(), "note: %v; showing totals without reservations\n", err)
+			}
+			if d, _ := cmd.Flags().GetString("data-dir"); d != "" {
+				cfg.DataDir = d
+			}
+			inv, err := inventory.Discover(cmd.Context(), inventory.Options{DataDir: existingDir(cfg.DataDir)})
+			if err != nil {
+				return err
+			}
+			out, err := protojson.MarshalOptions{Multiline: true, UseProtoNames: true, EmitUnpopulated: true}.
+				Marshal(agent.InventoryProto(inv, cfg))
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), string(out))
+			return nil
+		},
+	}
+	cmd.Flags().String("data-dir", "", "directory whose filesystem holds instance disks (default: data_dir from the config)")
+	return cmd
+}
+
+// existingDir walks up to the nearest existing directory, so disk size can
+// be measured before the data dir is created.
+func existingDir(dir string) string {
+	for d := dir; ; d = filepath.Dir(d) {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			return d
+		}
+		if parent := filepath.Dir(d); parent == d {
+			return d
+		}
+	}
 }

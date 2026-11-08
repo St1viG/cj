@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/St1viG/cj/gen/go/kondukter/agent/v1"
@@ -31,7 +32,18 @@ type Options struct {
 	Stream stream.Config
 	// ReconcileInterval overrides the 30 s reconcile tick (tests).
 	ReconcileInterval time.Duration
+	// InventoryCheck overrides the 30 s inventory diff check (tests).
+	InventoryCheck time.Duration
+	// Driver replaces the configured driver (tests).
+	Driver driver.Driver
 }
+
+// Inventory cadence (SPEC §7.1): sent at every Hello, whenever a periodic
+// check finds a difference, and unconditionally every InventoryRefresh.
+const (
+	InventoryCheck   = 30 * time.Second
+	InventoryRefresh = 5 * time.Minute
+)
 
 // Agent is one running kondukter-agent.
 type Agent struct {
@@ -46,9 +58,12 @@ type Agent struct {
 
 // New opens the local store and builds the configured driver.
 func New(cfg config.Config, log *slog.Logger, opts Options) (*Agent, error) {
-	drv, err := NewDriver(cfg)
-	if err != nil {
-		return nil, err
+	drv := opts.Driver
+	if drv == nil {
+		var err error
+		if drv, err = NewDriver(cfg); err != nil {
+			return nil, err
+		}
 	}
 	st, err := store.Open(filepath.Join(cfg.DataDir, store.FileName))
 	if err != nil {
@@ -137,9 +152,43 @@ func (a *Agent) Run(ctx context.Context) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return a.rec.Run(ctx) })
 	eg.Go(func() error { return a.stream.Run(ctx) })
+	eg.Go(func() error { return a.inventoryLoop(ctx, InventoryProto(inv, a.cfg)) })
 	err = eg.Wait()
 	a.log.Info("agent stopping", "reason", context.Cause(ctx).Error())
 	return err
+}
+
+// inventoryLoop re-discovers the host and sends the inventory when it
+// changed or InventoryRefresh has passed since the last send.
+func (a *Agent) inventoryLoop(ctx context.Context, last *agentv1.Inventory) error {
+	every := a.opts.InventoryCheck
+	if every == 0 {
+		every = InventoryCheck
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	lastSent := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		}
+		inv, err := a.driver.Inventory(ctx)
+		if err != nil {
+			a.log.Warn("inventory", "err", err)
+			continue
+		}
+		p := InventoryProto(inv, a.cfg)
+		changed := !proto.Equal(p, last)
+		if changed || time.Since(lastSent) >= InventoryRefresh {
+			if changed {
+				a.log.Info("inventory changed", "accelerators", len(p.GetAccelerators()), "vcpu", p.GetTotal().GetVcpu())
+			}
+			a.stream.SendInventory(p)
+			last, lastSent = p, time.Now()
+		}
+	}
 }
 
 // Hello implements stream.Handler.
@@ -169,7 +218,7 @@ func (a *Agent) Hello(ctx context.Context) (*agentv1.Hello, *agentv1.Inventory, 
 	for _, o := range observed {
 		h.Observed = append(h.Observed, statusProto(o, gen))
 	}
-	return h, inventoryProto(inv, a.cfg), nil
+	return h, InventoryProto(inv, a.cfg), nil
 }
 
 // Heartbeat implements stream.Handler.
