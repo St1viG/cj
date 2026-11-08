@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { adminPages } from "./admin";
 import { customerPages } from "./customer";
 import { partnerPages } from "./partner";
 
@@ -10,4 +11,5 @@ import { partnerPages } from "./partner";
 export const pageElements: Readonly<Record<string, ReactNode>> = {
   ...customerPages,
   ...partnerPages,
+  ...adminPages,
 };

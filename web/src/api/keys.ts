@@ -30,5 +30,12 @@ export const keys = {
     sites: ["fleet", "sites"] as const,
     partnerNodes: (siteId: string) => ["fleet", "partner-nodes", siteId] as const,
     utilization: (params: object) => ["fleet", "utilization", params] as const,
+    adminNodes: (params: object) => ["fleet", "admin-nodes", params] as const,
+    /** Under `fleet` as well: a force terminate changes the nodes' instance counts. */
+    adminInstances: (params: object) => ["fleet", "admin-instances", params] as const,
+  },
+  admin: {
+    catalog: ["admin", "catalog"] as const,
+    audit: (params: object) => ["admin", "audit", params] as const,
   },
 };

@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 22 of 45 items** (about 18 of 35 estimated sessions) · 8 partly done · 15 not started. Updated with every commit that finishes an item.
+**Done: 23 of 45 items** (about 18.5 of 35 estimated sessions) · 8 partly done · 14 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -61,7 +61,7 @@
 - [x] P5.1 — Web scaffold, auth, routing, embedding
 - [x] P5.2 — Customer pages (contents only)
 - [x] P5.3 — Partner pages
-- [ ] P5.4 — Operator pages
+- [x] P5.4 — Operator pages
 - [ ] P5.5 — Stage view data
 
 **P6 — Showcase**
@@ -737,13 +737,25 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - **Enroll:** the browser's token enrolled a real `kondukter-agent` with the mock driver, using `kondukter-agent enroll`, which is the step `install-agent.sh` runs; the script itself needs root. That enroll exited 0, and a second one with the same token was refused (`unauthenticated`). With the Nodes page open, `kondukter-agent run` started, and the node appeared as ready at `demo` 5.1 s later in both runs, without a reload (the 5 s refetch); `kctl nodes` agreed. The expiry shown was 1 h ahead, and Copy put the command on the clipboard.
   - Each run leaves its enrolled test node behind, UNREACHABLE once the agent stops, because nothing retires nodes yet. The only console errors were the signed-out `GetMe` 401, a 404 for `/favicon.ico`, and the deliberate refused undrain.
 
-#### ☐ P5.4 — Operator pages
+#### ☑ P5.4 — Operator pages
 - **Goal:** O-1, O-2 (read-only), O-3 (quarantine, force-terminate) and O-5.
 - **Deliverables:** `/admin/nodes`: all nodes with status and Quarantine / Drain actions. `/admin/instances`: all instances with phase, node, org and Force terminate. `/admin/catalog`: shapes, offers, images (read-only). `/admin/audit`: audit log table (actor, action, target, time, expandable payload).
 - **Acceptance criteria:** Quarantining a node in the browser shows `QUARANTINED` in `kctl nodes` and an audit row; the customer user cannot load `/admin/*`.
 - **Depends on:** P5.1
 - **Decisions required:** ADR-0022
 - **Size:** S
+- **As built (2026-11-08):** All four `/admin/*` routes are real pages in `web/src/pages/admin/`, registered as one map in `pages/registry.tsx`, and `docs/WEB_PAGES.md` has a section on them. No Go code changed, because `AdminService` already had every RPC the pages need. A customer or partner who opens `/admin/*` lands at their own home (P5.1's guard), and the server refuses their `AdminService` calls anyway.
+  - `/admin/nodes` reuses the partner page's node columns and Drain / Undrain. It adds the partner, the generation lag (`1 behind (desired 1, observed 0)`, else `0 (n)`), and the active instance count as a link to that node's instances. `?site=` lists every partner's sites and `?status=` takes a lower-case status; both go to `ListNodes`. Quarantine is offered on any node that is not quarantined or retired. It asks in place with an optional reason (the server's default is `quarantined by <email>`) and says that the node's instances keep running. Unquarantine sits beside it, since otherwise a quarantined node had no way back from the browser. `UnquarantineNode`, `UndrainNode` and `ListSites` were added to the page's RPCs.
+  - `/admin/instances` shows every org's instances, the newest 200, with a note when there are more. The columns are id, name, org, phase with reason, time in phase (counting between refetches), node hostname, offer and price, region, arch and created. Ended instances appear with `?all=1`, and the org and node cells set `?org=` and `?node=`. Force terminate asks in place with an optional reason and is disabled once the instance is ending; the server records `force-terminated by <email>: <reason>`. `ListNodes` was added to the page's RPCs, for the hostnames.
+  - `/admin/catalog` is read-only: offers (with "for sale" and the architectures that have an image), shapes, images (with status) and regions.
+  - `/admin/audit` shows 50 entries a page, newest first, with Older and Newest buttons. `?action=` is a select of the actions the server writes, and the actor cell sets `?actor=`. The target is shortened, and the payload is one line that opens to the whole JSON. `useParam` gained a list of params to clear on change, so a filter change drops the page token.
+  - Checked: 192 Vitest tests, 19 of them new, against an in-memory `AdminService` added to `web/src/test/fakeFleet.ts`. They cover the quarantine rules and refusals, the audit entries written, and the filters and paging sent to the server. `make web` passes. The local stack was P5.3's: compose Postgres on 55432, `kondukter serve`, 5 `kdk-sim` nodes at `demo` of `demo-dc` and one at `other` of `other-dc`, plus 7 UNREACHABLE test nodes left from earlier enrollment runs. A Playwright-core script drove headless Chrome, once against the embedded build after `make web && make build` and once through Vite's dev proxy. All 59 checks passed both times:
+    - **Access:** the customer, sent to each `/admin/*` path, landed on `/app/instances` with no operator links, and the browser made no `AdminService` request. Called directly, six `AdminService` RPCs returned 403 `permission_denied`. The partner at `/admin/audit` landed on `/partner/nodes`.
+    - **Nodes:** the operator landed on `/admin/nodes`, which listed the 13 nodes of `kctl nodes` (operator key) from both partners. The generation lag matched kctl's desired minus observed for every node. `?status=unreachable` showed the 7 unreachable ones, and the `other` site showed its one node.
+    - **Quarantine:** a `kctl`-created instance was running on `sim-arm64-01`, and Cancel left the node ready. Quarantine with the reason "e2e quarantine" showed `quarantined (e2e quarantine)` within about 0.15 s. `kctl nodes` showed `QUARANTINED`, with the same reason in `-o json`. The newest audit entry was `admin.quarantine_node` for that node by `operator@demo.local`, with payload `{"from":"ready","reason":"e2e quarantine","to":"quarantined"}`. On `/admin/audit` it was the top row, with the payload collapsed until opened. The instance was still RUNNING 5 s later. Unquarantine made the node READY again and wrote an `admin.unquarantine_node` entry. The operator's Drain and Undrain worked as on the partner page.
+    - **Instances:** the node's count `1` opened `/admin/instances?node=…` with that one instance. Its row read `quar-a | acme | running (agent_running) | … | sim-arm64-01 | cpu-2x2, €0.05/h | demo | arm64`, and the org filter showed only acme. Force terminate with the reason "e2e force" removed the row from the active list within 6 s. The customer's `kctl get` showed TERMINATED, with a TERMINATING event whose reason was `force-terminated by operator@demo.local: e2e force`, and the audit entry carried the reason and the org. With `?all=1` the row showed `terminated`, with Force terminate disabled.
+    - **Catalog and audit:** the section counts and table rows equalled `ListCatalog` (2 offers, 2 shapes, 2 images, 1 region), and the page had no buttons or inputs. The audit page's first and second pages of 50 matched `ListAuditLog`. Choosing `partner.drain_node` on the second page went back to the newest drains, and the actor filter combined with it.
+  - P5.3's 54 checks, re-run against the embedded build after the `useParam` change, all passed. The only console errors were the signed-out `GetMe` 401, the `/favicon.ico` 404, and the deliberate 403s. **Not checked:** neither the demo catalog nor the test data has an offer no longer for sale or a deprecated image, so the page's listing of those is unverified.
 
 #### ☐ P5.5 — Stage view data
 - **Goal:** The data stream the projector page needs during the failure drill.
@@ -808,9 +820,9 @@ Not scheduled. Collected so nothing is forgotten.
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+2 partly) |
-| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 3 |
+| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 4 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **22 (+8 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **23 (+8 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
