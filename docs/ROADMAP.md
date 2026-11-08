@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 10 partly done · 11 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 11 partly done · 10 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -66,7 +66,7 @@
 
 **P6 — Showcase**
 - [ ] P6.1 — Demo script · *partly done: the run sheet is written; a run from it by a team member, and its times, wait for the fleet*
-- [ ] P6.2 — Pre-flight checklist and reset
+- [ ] P6.2 — Pre-flight checklist and reset · *partly done: the checklist, `preflight.sh` and `demo-sleep.sh` are written and tested against a mock fleet; the run that exits 0 on the real fleet, and the per-node host checks, wait for it*
 - [ ] P6.3 — Dress rehearsals and tag
 
 ---
@@ -812,7 +812,27 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** —
 - **Size:** S
 
-#### ☐ P6.2 — Pre-flight checklist and reset
+#### ◐ P6.2 — Pre-flight checklist and reset
+- **As built so far (2026-11-08):**
+  - **[`docs/DEMO_CHECKLIST.md`](DEMO_CHECKLIST.md):**
+    - T-1 day, T-30 min, T-0 and after, each item with an owner and how to do it.
+    - The owners are three roles (Presenter, Fleet, Second) with a table to fill in names when the date is set.
+    - What `preflight.sh` checks and what it cannot.
+    - A known-issues sheet: the colliding host keys, quarantine and terminate, `demo-reset` with a node down, plain `kctl watch`, the watchdog's restart grace, the cold image cache, a certificate issued without Tailscale, the lid, and the stage page not yet merged.
+  - **`hack/preflight.sh`:** prints `ok`, `warn`, `skip` or `FAIL` per check and exits 1 on any FAIL. It checks:
+    - this Mac: disk, AC power, `demo-sleep.sh`;
+    - the tailnet: running, five devices online;
+    - the stack: services healthy, `/healthz` by `localhost` and by the tailnet name, the gateway certificate covering that name, the image server;
+    - the three accounts, by role;
+    - the fleet: four `READY` nodes, generation lag 0 (given 20 s to close right after a reset), a recent heartbeat, two arm64 nodes, a free healthy GTX 1060, no mock nodes, no live instances;
+    - the images: each real node has cached every active image it can run, and each `.sha256` in `deploy/images/dist` matches a catalog digest (`--deep` hashes the files).
+  - **`hack/demo-sleep.sh on|off|status`:** `caffeinate -dims` (Linux: `systemd-inhibit`) held by a background process with a pid file. It changes no system setting. The lid-closed case needs `pmset disablesleep`, which the owner runs as root; the script reports whether it is set, and the checklist says so. This differs from P4.2's wording, which has the script run `pmset` itself.
+  - **Tested** on the development Mac against a throwaway stack with four `kdk-sim` nodes: the pass path exits 0; each failure path (too few nodes or arm64 nodes, no matching GPU, a live instance, a name the gateway certificate does not cover, low disk) exits 1. The generation lag after a reset was a real race, which is why it waits.
+  - **Left:**
+    - a run on the real fleet that exits 0, on rehearsal day;
+    - the per-node host checks: `bootstrap.sh --check` from P4.1 and P4.2 does not exist yet;
+    - the image-cache check, which has only been tried with the jq filter on fixtures, since every node in the test was a mock;
+    - the names of the three roles.
 - **Goal:** Zero surprises on the day.
 - **Deliverables:** `docs/DEMO_CHECKLIST.md`: T-1 day (OS updates frozen, images pre-pulled and digests verified, `make demo-reset`, seeded accounts verified, one rehearsal); T-30 min (`tailscale status` shows all five online, `demo-sleep.sh on`, chargers, FED-D reachable, `bootstrap.sh --check` green, `kctl nodes` four `READY`, a browser window logged in per role, terminal font size); T-0 (reset once more); after (`demo-sleep.sh off`). `hack/preflight.sh` automating the checkable items. A known-issues sheet with workarounds collected during P4 and P5.
 - **Acceptance criteria:** `hack/preflight.sh` exits 0 on rehearsal day; every manual item names an owner.
@@ -854,8 +874,8 @@ Not scheduled. Collected so nothing is forgotten.
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+3 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
-| P6 Showcase | 3 | 1 | 2 | 2 | 0 (+1 partly) |
-| **Total** | **45** | **25** | **20** | **35** | **24 (+10 partly)** |
+| P6 Showcase | 3 | 1 | 2 | 2 | 0 (+2 partly) |
+| **Total** | **45** | **25** | **20** | **35** | **24 (+11 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

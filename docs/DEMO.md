@@ -292,7 +292,7 @@ make demo-reset
 
 It undoes quarantines and drains, terminates every instance and waits for the VMs to go, then empties the instance tables. Nodes, accounts, SSH keys and the catalog stay. It takes up to 180 s and exits non-zero if an instance does not terminate or a node is not `READY` at the end. The details are in [`deploy/compose/README.md`](../deploy/compose/README.md#demo).
 
-Then check `kctl nodes` in pane 2: four `READY` nodes, each with 0 active instances.
+Then run `hack/preflight.sh`, or at least check `kctl nodes` in pane 2: four `READY` nodes, each with 0 active instances.
 
 ## Fallbacks
 
