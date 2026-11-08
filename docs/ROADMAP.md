@@ -655,7 +655,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - With the agent stopped, it exited 1 and left the tables as they were.
     - Over the four drills, neither the agent nor the control plane logged an error or warning.
 - **Open:**
-  - `curl http://<magicdns>:8080/healthz` and `nc -z <magicdns> 8443` from FED-D, which needs that host.
+  - `curl http://<magicdns>:8080/healthz` and `nc -z <magicdns> 8443` from FED-D, on the demo's own ports. Done in kind on 2026-11-08 against a throwaway project of the same compose file on other ports (18080 and 18443, `KONDUKTER_BIND` left at `0.0.0.0`), brought up by `hack/demo.sh up` on the 8 GB development Mac, not on MAC-P: from FED-D `/healthz` returned 200 in 72 ms by the MagicDNS name, the image server returned 200, the gateway port was open, and `openssl s_client` showed the gateway certificate's SANs (MagicDNS name, tailnet IP, `localhost`, `127.0.0.1`) and ALPN `h2`. The project was removed afterwards. Repeat it once on the real stack and ports.
   - A `demo-up` timing on MAC-P itself.
   - The image server has nothing to serve until P1.5 builds the images into `deploy/images/dist`.
 - **Goal:** The compose stack on MAC-P, reachable by every node over the tailnet.
