@@ -6,11 +6,12 @@ Control plane and node agent that turn idle partner datacenter capacity (GPUs in
 
 ## Read in this order
 
-1. [docs/SPEC.md](docs/SPEC.md) — system specification and architecture brief (draft v0.1).
-2. [docs/ROADMAP.md](docs/ROADMAP.md) — demo-scoped roadmap: 45 items across P0–P6, every phase with an exit criterion, plus the decision log and the Later bucket.
-3. [docs/adr/](docs/adr/README.md) — one ADR per decision (0001–0025).
-4. [docs/spikes/](docs/spikes/README.md) — findings template for spikes S1–S5.
-5. [docs/WEB_PAGES.md](docs/WEB_PAGES.md) — web route map and page contents (the owner designs the UI; the roadmap only builds the skeleton).
+1. [docs/SYSTEM.md](docs/SYSTEM.md) — start here: the whole system in one document (architecture, control plane, agent, protocol, web app, how to run it, status).
+2. [docs/SPEC.md](docs/SPEC.md) — system specification and architecture brief (draft v0.1).
+3. [docs/ROADMAP.md](docs/ROADMAP.md) — demo-scoped roadmap: 45 items across P0–P6, every phase with an exit criterion, plus the decision log and the Later bucket.
+4. [docs/adr/](docs/adr/README.md) — one ADR per decision (0001–0025).
+5. [docs/spikes/](docs/spikes/README.md) — findings template for spikes S1–S5.
+6. [docs/WEB_PAGES.md](docs/WEB_PAGES.md) — web route map, page contents and the design system as built.
 
 ## Where to start
 
