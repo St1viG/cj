@@ -139,7 +139,7 @@ func TestRunWithoutGatewayFails(t *testing.T) {
 }
 
 func TestUnbuiltDriversFailClearly(t *testing.T) {
-	_, err := agent.NewDriver(config.Config{Driver: "libvirt"})
+	_, err := agent.NewDriver(config.Config{Driver: "libvirt"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "P2.5") {
 		t.Fatalf("err = %v", err)
 	}

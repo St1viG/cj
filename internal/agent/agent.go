@@ -17,6 +17,7 @@ import (
 	"github.com/St1viG/cj/internal/agent/access"
 	"github.com/St1viG/cj/internal/agent/config"
 	"github.com/St1viG/cj/internal/agent/driver"
+	"github.com/St1viG/cj/internal/agent/driver/lima"
 	"github.com/St1viG/cj/internal/agent/driver/mock"
 	"github.com/St1viG/cj/internal/agent/metering"
 	"github.com/St1viG/cj/internal/agent/reconcile"
@@ -67,7 +68,7 @@ func New(cfg config.Config, log *slog.Logger, opts Options) (*Agent, error) {
 	drv := opts.Driver
 	if drv == nil {
 		var err error
-		if drv, err = NewDriver(cfg); err != nil {
+		if drv, err = NewDriver(cfg, log); err != nil {
 			return nil, err
 		}
 	}
@@ -79,14 +80,31 @@ func New(cfg config.Config, log *slog.Logger, opts Options) (*Agent, error) {
 }
 
 // NewDriver builds the driver named in the config.
-func NewDriver(cfg config.Config) (driver.Driver, error) {
+func NewDriver(cfg config.Config, log *slog.Logger) (driver.Driver, error) {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	switch cfg.Driver {
 	case "mock":
 		return mock.New(cfg.Mock, mock.Options{
 			StateDir: filepath.Join(cfg.DataDir, "mock"), MaxInstances: cfg.MaxInstances,
 		})
-	case "libvirt", "lima":
-		return nil, fmt.Errorf("driver %q is not built yet (roadmap P2.5/P2.6)", cfg.Driver)
+	case "lima":
+		limactl, err := lima.FindLimactl(cfg.Lima.Limactl)
+		if err != nil {
+			return nil, err
+		}
+		home, err := lima.ResolveHome(cfg.Lima.Home)
+		if err != nil {
+			return nil, err
+		}
+		return lima.New(lima.Options{
+			Run:      lima.Exec(limactl, cfg.Lima.Home),
+			StateDir: filepath.Join(cfg.DataDir, "lima"), DataDir: cfg.DataDir, Home: home,
+			MaxInstances: cfg.MaxInstances, Log: log.With("module", "lima"),
+		})
+	case "libvirt":
+		return nil, fmt.Errorf("driver %q is not built yet (roadmap P2.5)", cfg.Driver)
 	}
 	return nil, fmt.Errorf("unknown driver %q", cfg.Driver)
 }

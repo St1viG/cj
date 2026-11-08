@@ -46,8 +46,20 @@ type Config struct {
 	// Network is the guest network on Linux nodes: libvirt's kdk-net, whose
 	// DNAT and isolation rules the agent owns (ADR-0016).
 	Network Network `yaml:"network"`
+	// Lima configures the Lima driver on macOS nodes.
+	Lima Lima `yaml:"lima"`
 	// Mock configures the mock driver.
 	Mock Mock `yaml:"mock"`
+}
+
+// Lima configures the Lima driver (ADR-0020).
+type Lima struct {
+	// Limactl is the limactl binary; empty means PATH, then Homebrew's
+	// locations, which a launchd job's PATH lacks.
+	Limactl string `yaml:"limactl"`
+	// Home is passed as LIMA_HOME; empty means Lima's default, ~/.lima of
+	// the user the agent runs as (Lima refuses to run as root).
+	Home string `yaml:"home"`
 }
 
 // Network is the libvirt guest network.

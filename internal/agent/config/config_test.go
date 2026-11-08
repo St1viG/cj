@@ -42,6 +42,16 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadLima(t *testing.T) {
+	cfg, err := config.Parse([]byte("driver: lima\nlima: {limactl: /opt/homebrew/bin/limactl, home: /Users/kdk/.lima}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Lima.Limactl != "/opt/homebrew/bin/limactl" || cfg.Lima.Home != "/Users/kdk/.lima" {
+		t.Fatalf("lima = %+v", cfg.Lima)
+	}
+}
+
 func TestInvalid(t *testing.T) {
 	for name, tc := range map[string]struct{ yaml, want string }{
 		"empty file":        {"", "driver is required"},
