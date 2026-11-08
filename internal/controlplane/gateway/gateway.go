@@ -24,8 +24,13 @@ import (
 	"github.com/St1viG/cj/internal/store/db"
 )
 
-// errResync ends a stream whose node must send a fresh Hello.
-var errResync = errors.New("gateway: node must reconnect")
+// errResync ends a stream whose node must send a fresh Hello, the only
+// message that re-reports every instance.
+var (
+	errResync            = errors.New("node must reconnect")
+	errMarkedUnreachable = fmt.Errorf("%w: it was marked unreachable while connected", errResync)
+	errUnquarantined     = fmt.Errorf("%w: it left quarantine, and reports it sent while quarantined were dropped", errResync)
+)
 
 // Notifier is told when a node's desired state changed (SPEC §6.5 commit
 // step 5). In-process in the demo (ADR-0017); LISTEN/NOTIFY with replicas.
@@ -67,8 +72,11 @@ type session struct {
 	kick   chan struct{}
 	cancel context.CancelCauseFunc
 	// pushedAt is when the last snapshot went out; only the stream's own
-	// goroutine touches it.
+	// goroutine touches it, as it does dropped.
 	pushedAt time.Time
+	// dropped is set when a report was dropped because the node was
+	// quarantined; the first heartbeat after quarantine ends asks for a Hello.
+	dropped bool
 }
 
 var (
@@ -144,7 +152,8 @@ func (s *Server) Connect(stream agentv1.AgentGateway_ConnectServer) error {
 		"last_applied_generation", hello.GetLastAppliedGeneration(), "desired_generation", node.DesiredGeneration,
 		"status", node.Status)
 
-	sess := &session{kick: make(chan struct{}, 1), cancel: cancel}
+	// A quarantined node's Hello was not ingested (hello).
+	sess := &session{kick: make(chan struct{}, 1), cancel: cancel, dropped: node.Status == db.NodeStatusQuarantined}
 	s.mu.Lock()
 	if old := s.sessions[node.ID]; old != nil {
 		old.cancel(errReplaced)
@@ -203,8 +212,8 @@ func (s *Server) Connect(stream agentv1.AgentGateway_ConnectServer) error {
 					return endStatus(ctx)
 				}
 				if errors.Is(err, errResync) {
-					log.Info("node was marked unreachable while connected; asking it to reconnect")
-					return status.Error(codes.Unavailable, "node was marked unreachable; reconnect")
+					log.Info("asking the agent to reconnect so its Hello re-reports every instance", "why", err)
+					return status.Error(codes.Unavailable, err.Error())
 				}
 				log.Error("ingest failed; closing the stream so the agent resends", "seq", m.GetSeq(), "err", err)
 				return status.Error(codes.Internal, "ingest failed")
@@ -285,9 +294,10 @@ func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_Connect
 		}
 		if row.Status == db.NodeStatusUnreachable {
 			// The watchdog gave up on this stream while it was still open.
-			// Only a Hello re-reports every instance, so make the agent
-			// reconnect.
-			return errResync
+			return errMarkedUnreachable
+		}
+		if sess.dropped && row.Status != db.NodeStatusQuarantined {
+			return errUnquarantined
 		}
 		if applied < row.DesiredGeneration && time.Since(sess.pushedAt) >= s.repushAfter() {
 			s.log.Info("agent is behind its snapshot; pushing it again", "node", nodeID.String(),
@@ -297,8 +307,12 @@ func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_Connect
 	case *agentv1.AgentMessage_Inventory:
 		if err := s.store.WithTx(ctx, func(tx store.Tx) error {
 			node, err := tx.GetNodeForUpdate(ctx, nodeID)
-			if err != nil || node.Status == db.NodeStatusQuarantined {
+			if err != nil {
 				return err
+			}
+			if node.Status == db.NodeStatusQuarantined {
+				sess.dropped = true
+				return nil
 			}
 			return ingestInventory(ctx, tx, nodeID, driver, b.Inventory)
 		}); err != nil {
@@ -307,10 +321,17 @@ func (s *Server) handle(ctx context.Context, stream agentv1.AgentGateway_Connect
 	case *agentv1.AgentMessage_InstanceStatus:
 		if err := s.store.WithTx(ctx, func(tx store.Tx) error {
 			node, err := tx.GetNode(ctx, nodeID)
-			if err != nil || node.Status == db.NodeStatusQuarantined {
+			if err != nil {
 				return err
 			}
-			out, err := controller.AgentStatus(ctx, tx, node, b.InstanceStatus)
+			var out controller.Outcome
+			if node.Status == db.NodeStatusQuarantined {
+				var dropped bool
+				out, dropped, err = controller.QuarantinedStatus(ctx, tx, node, b.InstanceStatus)
+				sess.dropped = sess.dropped || dropped
+			} else {
+				out, err = controller.AgentStatus(ctx, tx, node, b.InstanceStatus)
+			}
 			if err != nil {
 				return err
 			}

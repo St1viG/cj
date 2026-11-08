@@ -384,3 +384,48 @@ func TestWebAppAndAPIPrefix(t *testing.T) {
 		}
 	}
 }
+
+// TestQuarantineAndUnquarantine: a quarantined node's reports are dropped
+// (ADR-0024), except the confirmation that an instance it was told to
+// terminate is deleted. Once the node leaves quarantine, its next heartbeat
+// makes it reconnect, and its Hello re-reports what was dropped.
+func TestQuarantineAndUnquarantine(t *testing.T) {
+	ctx := context.Background()
+	p := startPlane(t)
+	n := p.enroll(t, "cpu-node", config.Mock{Arch: "amd64", VCPU: 8, RAMMiB: 16384, DiskGiB: 200, ProvisionDelay: time.Second})
+	running := p.create(t, p.f.CPUOffer, p.f.CPUImages["amd64"])
+	eventually(t, 10*time.Second, "first instance RUNNING", func() bool {
+		return p.instance(t, running.ID).Phase == db.InstancePhaseRunning
+	})
+	provisioning := p.create(t, p.f.CPUOffer, p.f.CPUImages["amd64"])
+	eventually(t, 5*time.Second, "second instance placed", func() bool { return p.instance(t, provisioning.ID).NodeID != nil })
+
+	setNode := func(ev controller.NodeEvent) {
+		t.Helper()
+		if err := p.srv.Store.WithTx(ctx, func(tx store.Tx) error {
+			_, err := controller.SetNodeStatus(ctx, tx, n.id, ev, "test")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setNode(controller.NodeQuarantine)
+
+	// Terminating still completes: the deletion report is accepted.
+	if _, err := p.srv.Instances.Terminate(ctx, running.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 5*time.Second, "terminated instance TERMINATED while quarantined", func() bool {
+		return p.instance(t, running.ID).Phase == db.InstancePhaseTerminated
+	})
+	// The second VM comes up, but the report saying so is dropped.
+	time.Sleep(2 * time.Second)
+	if got := p.instance(t, provisioning.ID).Phase; got == db.InstancePhaseRunning {
+		t.Fatalf("a quarantined node's report was ingested: phase %s", got)
+	}
+
+	setNode(controller.NodeUnquarantine)
+	eventually(t, 5*time.Second, "node READY and the second instance RUNNING without restarting the agent", func() bool {
+		return p.nodeStatus(t, n.id) == db.NodeStatusReady && p.instance(t, provisioning.ID).Phase == db.InstancePhaseRunning
+	})
+}
