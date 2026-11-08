@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # preflight.sh — roadmap P6.2: check everything about the demo that a machine
-# can check, on MAC-P, before the audience arrives. docs/DEMO_CHECKLIST.md says
+# can check, before the audience arrives. With the Macs out of scope (ADR-0026)
+# the control plane and the one GPU node are the same Fedora box, so run it on
+# the presenter's laptop with DEMO_API pointing at that box (remote mode), or
+# on the box itself against the local compose stack (the default). docs/DEMO_CHECKLIST.md says
 # when to run it (the day before, 30 minutes before, and right after a reset)
 # and lists what it cannot check.
 #
@@ -12,12 +15,17 @@
 # warn is something to look at that the demo can survive. It reads the same
 # env file as `make demo-up` and signs in as the three seeded accounts.
 #
-# Expectations, with the demo fleet as the default:
-#   PREFLIGHT_NODES=4            nodes that must be READY
-#   PREFLIGHT_ARM64=2            of them with arch arm64
+# Remote mode, from the laptop:
+#   DEMO_API=http://fedora:8080 SEED_PASSWORD=… hack/preflight.sh
+#   It skips what only the box can show (compose, the gateway certificate, the
+#   image server, which listen on loopback there) and checks the rest.
+#
+# Expectations, with the single-box demo as the default:
+#   PREFLIGHT_NODES=1            nodes that must be READY
+#   PREFLIGHT_ARM64=0            of them with arch arm64 (the Macs are gone)
 #   PREFLIGHT_GPU_MODEL='GTX 1060'   regexp: a READY node with a healthy, free
 #                                accelerator whose model matches
-#   PREFLIGHT_TAILNET=5          devices online on the tailnet, this one included
+#   PREFLIGHT_TAILNET=2          devices online on the tailnet, this one included
 #   PREFLIGHT_HOST=name          the name agents and browsers use for this
 #                                machine, when it is not the Tailscale name
 #                                (the LAN fallback in DEMO.md)
@@ -26,7 +34,7 @@
 #   PREFLIGHT_IMAGES='a b'       only check these image names are cached
 #                                (default: every active image for the node)
 #   PREFLIGHT_STALE=60           seconds without a heartbeat before a node warns
-#   PREFLIGHT_NODE_HOSTS=''      "fedora:fedora mac-a:macos": run each node's bootstrap.sh
+#   PREFLIGHT_NODE_HOSTS=''      "fedora:fedora": run each node's bootstrap.sh
 #                                --check over SSH (target:kind; local:macos runs here)
 #   PREFLIGHT_SETTLE=20          seconds a node may take to apply its latest
 #                                commands, as right after a reset
@@ -48,10 +56,12 @@ case ${1:-} in
 *) die "usage: $0 [--deep]" ;;
 esac
 
-want_nodes=${PREFLIGHT_NODES:-4}
-want_arm=${PREFLIGHT_ARM64:-2}
+want_nodes=${PREFLIGHT_NODES:-1}
+want_arm=${PREFLIGHT_ARM64:-0}
 gpu_model=${PREFLIGHT_GPU_MODEL:-GTX 1060}
-want_tailnet=${PREFLIGHT_TAILNET:-5}
+want_tailnet=${PREFLIGHT_TAILNET:-2}
+remote=0
+[ -z "${DEMO_API:-}" ] || remote=1
 min_disk=${PREFLIGHT_MIN_DISK_GB:-20}
 stale=${PREFLIGHT_STALE:-60}
 settle=${PREFLIGHT_SETTLE:-20}
@@ -68,6 +78,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 # ---------------------------------------------------------------- this Mac
 section "This machine"
+[ "$remote" = 0 ] || echo "info: remote mode, control plane at $api"
 
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
 	note "the checkout has uncommitted changes ($(git describe --tags --always --dirty 2>/dev/null))"
@@ -86,7 +97,7 @@ if [ "$(uname -s)" = Darwin ]; then
 	if pmset -g batt | grep -q "AC Power"; then
 		pass "on AC power"
 	else
-		miss "running on battery: plug in MAC-P"
+		miss "running on battery: plug in this machine"
 	fi
 fi
 
@@ -120,9 +131,11 @@ tsname=${PREFLIGHT_HOST:-$tsname}
 # ---------------------------------------------------------------- stack
 section "Control plane"
 
-[ -e "$env_file" ] || die "no $env_file: run \`make demo-up\` first"
-
-if services=$(compose ps --format '{{.Service}} {{.State}} {{.Health}}' 2>"$tmp/ps.err") && [ -n "$services" ]; then
+if [ "$remote" = 1 ]; then
+	skip "compose services (remote mode: the stack is on the box)"
+elif [ ! -e "$env_file" ]; then
+	die "no $env_file: run \`make demo-up\` first, or set DEMO_API to check a control plane elsewhere"
+elif services=$(compose ps --format '{{.Service}} {{.State}} {{.Health}}' 2>"$tmp/ps.err") && [ -n "$services" ]; then
 	badsvc=$(awk '$2 != "running" || ($3 != "" && $3 != "healthy") { printf "%s%s(%s %s)", sep, $1, $2, $3; sep = ", " }' <<<"$services")
 	if [ -z "$badsvc" ]; then
 		pass "compose services up: $(awk '{ printf "%s%s", sep, $1; sep = ", " }' <<<"$services")"
@@ -139,7 +152,9 @@ else
 	miss "API does not answer /healthz on $api"
 fi
 
-if [ -n "$tsname" ]; then
+if [ "$remote" = 1 ]; then
+	skip "name, gateway certificate and image server checks (remote mode: the gateway and image server listen on loopback on the box)"
+elif [ -n "$tsname" ]; then
 	if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$tsname:$api_port/healthz")" = 200 ]; then
 		pass "API is reachable by its name, http://$tsname:$api_port"
 	else
@@ -159,15 +174,21 @@ else
 	skip "name checks (no Tailscale name, and PREFLIGHT_HOST is not set)"
 fi
 
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$img_port/" || true)
-if [ "$code" = 200 ]; then
-	pass "image server answers on port $img_port"
-else
-	miss "image server on port $img_port answered ${code:-nothing}"
+if [ "$remote" = 0 ]; then
+	code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$img_port/" || true)
+	if [ "$code" = 200 ]; then
+		pass "image server answers on port $img_port"
+	else
+		miss "image server on port $img_port answered ${code:-nothing}"
+	fi
 fi
 
 # ---------------------------------------------------------------- accounts
 section "Accounts"
+
+if [ -z "${SEED_PASSWORD:-}" ] && [ -z "$(envval SEED_PASSWORD)" ]; then
+	miss "SEED_PASSWORD is not set (the seeded accounts' password; on the box it is in /etc/kondukter-demo/demo.env)"
+fi
 
 signed=
 for acct in customer:ROLE_CUSTOMER partner:ROLE_PARTNER operator:ROLE_OPERATOR; do
@@ -235,10 +256,12 @@ if [ -n "$jar" ]; then
 	fi
 
 	arm=$(jq '[.nodes[]? | select(.status == "NODE_STATUS_READY" and .arch == "arm64")] | length' <<<"$nodes")
-	if [ "$arm" -ge "$want_arm" ]; then
+	if [ "$want_arm" = 0 ]; then
+		skip "arm64 nodes (none wanted: the Macs are out of scope)"
+	elif [ "$arm" -ge "$want_arm" ]; then
 		pass "$arm arm64 nodes READY (need $want_arm)"
 	else
-		miss "$arm arm64 nodes READY, need $want_arm for the Mac story"
+		miss "$arm arm64 nodes READY, need $want_arm"
 	fi
 
 	gpu=$(jq -r --arg m "$gpu_model" '[.nodes[]? | select(.status == "NODE_STATUS_READY") | select(any(.accelerators[]?; (.model | test($m)) and .health == "ACCELERATOR_HEALTH_OK" and ((.allocated // false) | not))) | .hostname] | join(", ")' <<<"$nodes")
@@ -302,7 +325,10 @@ if [ -n "$jar" ]; then
 	shopt -s nullglob
 	files=("$root"/deploy/images/dist/*.qcow2 "$root"/deploy/images/dist/*.img)
 	shopt -u nullglob
-	if [ "${#files[@]}" = 0 ]; then
+	if [ "$remote" = 1 ]; then
+		files=()
+		skip "image files and their .sha256 (remote mode: they are on the box; run this there, or see its *.manifest.json)"
+	elif [ "${#files[@]}" = 0 ]; then
 		skip "deploy/images/dist holds no image files (the CPU images come from Ubuntu's own server)"
 	fi
 	for f in ${files[@]+"${files[@]}"}; do

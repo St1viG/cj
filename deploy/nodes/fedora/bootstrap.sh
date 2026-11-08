@@ -256,10 +256,12 @@ if [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
 fi
 if [ -n "$qemud" ] && have virsh; then
 	if out=$(virsh -c qemu:///system net-info "$net" 2>&1); then
-		if grep -q '^Active:.*yes' <<<"$out"; then ok "network $net is active"; else fail "network $net is defined but not active" "sudo virsh net-start $net"; fi
-		if grep -q '^Autostart:.*yes' <<<"$out"; then ok "network $net starts at boot"; else fail "network $net does not autostart" "sudo virsh net-autostart $net"; fi
+		# The agent's driver defines and starts the network when it first needs
+		# it (EnsureNetwork), so neither state is a failure.
+		if grep -q '^Active:.*yes' <<<"$out"; then ok "network $net is active"; else warn "network $net is defined but not active; the agent starts it with the first instance"; fi
+		if grep -q '^Autostart:.*yes' <<<"$out"; then ok "network $net starts at boot"; else ok "network $net does not autostart, which the agent does not need"; fi
 	else
-		fail "network $net is not defined ($(head -1 <<<"$out" | cut -c1-80))" "P4.1's install half defines it (open forward mode, 10.77.0.0/24)"
+		warn "network $net is not defined yet ($(head -1 <<<"$out" | cut -c1-80)); the agent defines it with the first instance"
 	fi
 else
 	skip "network $net (libvirt is not running, and --check does not start it)"
