@@ -27,7 +27,7 @@ SQLC         ?= $(if $(filter $(SQLC_VERSION),$(shell sqlc version 2>/dev/null))
 BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
-.PHONY: help tools gen sqlc build web web-dev test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
+.PHONY: help tools gen sqlc build agent-dist web web-dev test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -56,6 +56,7 @@ web: ## Install, typecheck, test and build the web app into web/dist (run before
 
 web-dev: ## Vite dev server on :5173, proxying /api to a running `kondukter serve` (KONDUKTER_API_URL)
 	pnpm --dir web dev
+
 # Node platforms: the Fedora x86 nodes and the Apple Silicon Macs.
 AGENT_PLATFORMS ?= linux/amd64 darwin/arm64
 
