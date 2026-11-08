@@ -5,7 +5,7 @@
 #   KDK_SSH_KEY="$(cat ~/.ssh/id_ed25519.pub)" envsubst < hack/s3/kdk.yaml > /tmp/kdk-test.yaml
 #   limactl create --name kdk-test --tty=false /tmp/kdk-test.yaml
 #   limactl start kdk-test
-#   ssh -p 40001 ubuntu@<this Mac's address>
+#   ssh -p 40001 ubuntu@<this Mac's address>   # guest port 2222, see below
 vmType: vz
 arch: aarch64
 images:
@@ -20,8 +20,11 @@ mounts: []
 containerd:
   system: false
   user: false
+# Lima reserves guest port 22 for its own management SSH and rejects any
+# portForwards rule that covers it (finding 1 in docs/spikes/S3). The
+# customer's sshd therefore also listens on 2222, which is forwarded.
 # Lima's own user stays (it is how limactl reaches the guest); the customer
-# logs in as ubuntu with their key, through the forwarded port.
+# logs in as ubuntu with their key.
 provision:
   - mode: system
     script: |
@@ -34,10 +37,23 @@ provision:
       chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
       chmod 600 /home/ubuntu/.ssh/authorized_keys
       echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-kdk-ubuntu
+      # Ubuntu 24.04 starts sshd from ssh.socket: add a second listener.
+      mkdir -p /etc/systemd/system/ssh.socket.d
+      printf '[Socket]\nListenStream=\nListenStream=0.0.0.0:22\nListenStream=[::]:22\nListenStream=0.0.0.0:2222\n' \
+        > /etc/systemd/system/ssh.socket.d/kdk.conf
+      systemctl daemon-reload
+      systemctl restart ssh.socket
 portForwards:
-  - guestPort: 22
+  - guestPort: 2222
     hostPort: 40001
     hostIP: "0.0.0.0"
-  # Nothing else leaves the guest.
-  - guestPortRange: [1, 65535]
+  # Nothing else leaves the guest. Lima otherwise forwards every listening
+  # guest port to the host's 127.0.0.1 (its built-in fallback rule). Rules
+  # match first-wins; the default guestIP 127.0.0.1 matches loopback binds
+  # and "0.0.0.0" the wildcard ones, so both are needed (finding 2).
+  - guestIP: "127.0.0.1"
+    proto: any
+    ignore: true
+  - guestIP: "0.0.0.0"
+    proto: any
     ignore: true
