@@ -99,7 +99,7 @@ No other LAN or tailnet machine was probed.
 | Question | Verdict |
 |---|---|
 | 1. Non-interactive `limactl` lifecycle | **Go.** create, start, list, stop and delete all work without a TTY. |
-| 2. Key injection and port forward on `0.0.0.0` | **Go, with a change:** forward guest 2222, not 22 (finding 1), and end every template with the two ignore rules (finding 2). SSH from another tailnet machine is **not verified** (only via this Mac's own tailnet address), so it stays open for P4.5. |
+| 2. Key injection and port forward on `0.0.0.0` | **Go, with a change:** forward guest 2222, not 22 (finding 1), and end every template with the two ignore rules (finding 2). SSH from another tailnet machine is **not verified** (only via this Mac's own tailnet address), so it stays open for P4.5. **Addendum, 2026-11-08, once FED-D was online:** from FED-D, another tailnet machine, `nc -z` to the Mac's MagicDNS name on port 40001 succeeded and `ssh-keyscan -p 40001` returned the guest's banner (`SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20`) and its rsa, ecdsa and ed25519 host keys, with the same template and the forward on `0.0.0.0`. A login with a key was not tried: FED-D has no key pair and none was created there. |
 | 3. `Observed` fields | **Go:** `name`, `status`, `config.portForwards`, plus `cpus`, `memory`, `disk` and `arch`. |
 | 4. Timings | Cold 71 s and cached 21 s, create to customer SSH. |
 | 5. `kill -9` of the host agent | **Recovers the same VM, rebooted:** a hard power-off, not a pause. |
@@ -115,7 +115,7 @@ Changes this asks for:
 
 ## Follow-ups
 
-- SSH from MAC-P to a Mac node over the tailnet (the acceptance criterion as written): needs a second machine, so it is folded into P4.5.
+- SSH from MAC-P to a Mac node over the tailnet (the acceptance criterion as written): needs a second Mac, so it is folded into P4.5. The network path from another tailnet machine (FED-D) is shown by the addendum to finding 2's row above: the port answers with the guest's banner and host keys, but no login was made.
 - Try the pf `user` rule approach on a dedicated node with a dedicated user; that needs root on a machine that is not the development Mac.
 - Measure a second concurrent VM on 8 GB only if the demo plan changes.
 - The cold `create` includes a qcow2 → raw conversion of the cloud image (Lima does it for `vz`). Keeping the converted image in the agent's own image cache would cut repeated cold creates, but the cached path is already 21 s.
