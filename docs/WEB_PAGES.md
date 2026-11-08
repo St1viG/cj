@@ -31,10 +31,10 @@ Access rules, as built:
 | `/partner/enroll` | partner | site picker; last generated token's one-time `install-agent.sh --server … --token …` command with expiry | Create enrollment token; copy command | `PartnerService.CreateEnrollmentToken`, `PartnerService.ListSites` |
 | `/partner/utilization` | partner | per-node utilization numbers for a period (allocated vs allocatable vCPU / RAM / disk / accelerators, active instances, instance minutes) as a table; the period and total | Site filter; period filter | `PartnerService.GetUtilization`, `PartnerService.ListSites` |
 | `/admin` | operator | redirect to `/admin/nodes` | — | — |
-| `/admin/nodes` | operator | all nodes across partners: site, status, inventory summary, generation lag (`desired − observed`), last seen | Quarantine; Drain; Undrain | `AdminService.ListNodes`, `AdminService.QuarantineNode`, `PartnerService.DrainNode` |
-| `/admin/instances` | operator | all instances: id, org, phase, node, offer, created | Force terminate (confirm) | `AdminService.ListInstances`, `AdminService.ForceTerminateInstance` |
-| `/admin/catalog` | operator | shapes, offers, images tables (read-only in the demo) | — | `AdminService.ListCatalog` |
-| `/admin/audit` | operator | audit log: time, actor, action, target, expandable payload | Filter by actor / action | `AdminService.ListAuditLog` |
+| `/admin/nodes` | operator | all nodes across partners: partner, site, status, inventory summary, active instances (link to them), generation lag (`desired − observed`), last seen | Site and status filters; Quarantine (optional reason); Unquarantine; Drain; Undrain | `AdminService.ListNodes`, `AdminService.QuarantineNode`, `AdminService.UnquarantineNode`, `PartnerService.DrainNode`, `PartnerService.UndrainNode`, `PartnerService.ListSites` |
+| `/admin/instances` | operator | all instances: id, name, org, phase + reason, time in phase, node, offer and price, region, arch, created | Org, node and ended filters; Force terminate (confirm, optional reason) | `AdminService.ListInstances`, `AdminService.ForceTerminateInstance`, `AdminService.ListNodes` |
+| `/admin/catalog` | operator | offers, shapes, images and regions tables (read-only in the demo) | — | `AdminService.ListCatalog` |
+| `/admin/audit` | operator | audit log: time, actor, action, target, expandable payload | Filter by actor / action; older and newest pages | `AdminService.ListAuditLog` |
 | `/stage` | operator | fleet overview for the projector: nodes grouped by site with status and last seen; each node's non-terminal instances with phase and phase age; updates live | `?demo=1` shortens ids | `AdminService.WatchFleet` (added in P5.5 if polling is insufficient) or `AdminService.ListNodes` + `AdminService.ListInstances` on a 2 s interval |
 
 ## Shared skeleton pieces (P5.1)
@@ -71,6 +71,15 @@ All four `/partner/*` routes render real pages. Node status and accelerator heal
 - **`/partner/utilization`**: the period the server used (with no dates, the last 24 hours) and the total instance minutes. Per node: vCPU, RAM, disk and accelerators allocated now of allocatable (`2 of 8 (25%)`), active instances and instance minutes in the period. The site filter is the same `?site=` as on the nodes page; the period is whole local days, "To" included, as on `/app/usage`.
 
 `nodeColumns` and `DrainActions` (`pages/nodes.tsx`) are shared with `/admin/nodes`; `SiteFilter` and `useSites` are in `pages/partner/sites.tsx`; `useParam` (`hooks/`) binds one search param to a filter; `Confirm` takes an optional `reason` field.
+
+## Operator pages, as built (P5.4)
+
+All four `/admin/*` routes render real pages; a customer or partner who opens one lands at their own home.
+
+- **`/admin/nodes`**: the partner node table plus partner, generation lag (`1 behind (desired 5, observed 4)`, else `0 (4)`) and the active count as a link to `/admin/instances?node=…`. Filters `?site=` (every partner's sites) and `?status=` (`quarantined`), both sent to `ListNodes`. Quarantine is offered on every node but a quarantined or retired one, with an optional reason (`quarantined by <email>` when empty); it stops placements and the server ignores the node's reports, but running instances are not stopped. Unquarantine returns the node to ready, or to unreachable until its agent connects. Drain and Undrain are the partner page's.
+- **`/admin/instances`**: every org's instances, newest 200 (a note says when there are more). `?all=1` adds terminated, failed and lost ones; the org and node cells are buttons that set `?org=` and `?node=`, with "Any org" and "Any node" to clear them. Force terminate asks in place with an optional reason, stored as `force-terminated by <email>: <reason>` and in the audit log; it is disabled once the instance is ending or ended.
+- **`/admin/catalog`**: offers (with "for sale" and the architectures that have an image), shapes, images (with status, so deprecated ones show) and regions.
+- **`/admin/audit`**: 50 entries a page, newest first, with "Older entries" and "Newest entries" (`?page=` is the server's token). `?action=` is a select of the actions the server writes; the actor cell is a button that sets `?actor=`. Changing a filter goes back to the newest page. The target is shortened (`node/7f3c1a2b`), the payload is one line that opens to the whole JSON.
 
 ## Explicitly not here
 

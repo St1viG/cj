@@ -4,13 +4,14 @@ import { useSearchParams } from "react-router";
 /**
  * One search param as a filter value, and a setter that keeps the other
  * params and replaces the history entry (a filter is not a page to go back
- * to). An empty value removes the param.
+ * to). An empty value removes the param, and so does every name in
+ * `resets` on any change (a page token is void once the filter changes).
  *
  * The router applies a location change inside a transition, so the URL
  * catches up a render later; until then the value just set is returned, and
  * a select bound to it does not snap back for a frame.
  */
-export function useParam(name: string): [string, (value: string) => void] {
+export function useParam(name: string, resets: readonly string[] = []): [string, (value: string) => void] {
   const [params, setParams] = useSearchParams();
   const fromUrl = params.get(name) ?? "";
   const [pending, setPending] = useState<{ url: string; value: string } | null>(null);
@@ -21,6 +22,7 @@ export function useParam(name: string): [string, (value: string) => void] {
   const set = (v: string) => {
     setPending({ url: fromUrl, value: v });
     const next = new URLSearchParams(params);
+    for (const r of resets) next.delete(r);
     if (v) next.set(name, v);
     else next.delete(name);
     setParams(next, { replace: true });
