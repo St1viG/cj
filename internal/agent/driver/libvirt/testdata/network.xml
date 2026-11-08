@@ -1,0 +1,10 @@
+<network>
+  <name>kdk-net</name>
+  <forward mode='open'/>
+  <bridge name='kdk-br0' stp='on' delay='0'/>
+  <ip address='10.77.0.1' prefix='24'>
+    <dhcp>
+      <range start='10.77.0.2' end='10.77.0.254'/>
+    </dhcp>
+  </ip>
+</network>

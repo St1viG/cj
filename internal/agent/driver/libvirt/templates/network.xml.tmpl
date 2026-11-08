@@ -1,0 +1,15 @@
+<network{{if .DNSOption}} xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'{{end}}>
+  <name>{{xml .Name}}</name>
+  <forward mode='open'/>
+  <bridge name='{{xml .Bridge}}' stp='on' delay='0'/>
+  <ip address='{{.Gateway}}' prefix='{{.Prefix}}'>
+    <dhcp>
+      <range start='{{.First}}' end='{{.Last}}'/>
+    </dhcp>
+  </ip>
+{{- if .DNSOption}}
+  <dnsmasq:options>
+    <dnsmasq:option value='{{xml .DNSOption}}'/>
+  </dnsmasq:options>
+{{- end}}
+</network>

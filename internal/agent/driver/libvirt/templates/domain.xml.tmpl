@@ -1,0 +1,77 @@
+<domain type='kvm'>
+  <name>{{xml .Name}}</name>
+  <metadata>
+    <kdk:instance xmlns:kdk='{{xml .NS}}'>
+      <kdk:id>{{xml .ID}}</kdk:id>
+      <kdk:generation>{{.Generation}}</kdk:generation>
+    </kdk:instance>
+  </metadata>
+  <memory unit='MiB'>{{.RAMMiB}}</memory>
+  <currentMemory unit='MiB'>{{.RAMMiB}}</currentMemory>
+  <vcpu placement='static'>{{.VCPU}}</vcpu>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <firmware>
+      <feature enabled='no' name='secure-boot'/>
+      <feature enabled='no' name='enrolled-keys'/>
+    </firmware>
+    <nvram>{{xml .NVRAM}}</nvram>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <vmport state='off'/>
+  </features>
+  <cpu mode='host-passthrough' check='none'/>
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <pm>
+    <suspend-to-mem enabled='no'/>
+    <suspend-to-disk enabled='no'/>
+  </pm>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{xml .Disk}}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{xml .Seed}}'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <mac address='{{xml .MAC}}'/>
+      <source network='{{xml .Network}}'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <controller type='usb' model='none'/>
+    <memballoon model='none'/>
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+    </rng>
+{{- range .Hostdevs}}
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='{{printf "0x%04x" .Domain}}' bus='{{printf "0x%02x" .Bus}}' slot='{{printf "0x%02x" .Slot}}' function='{{printf "0x%x" .Function}}'/>
+      </source>
+    </hostdev>
+{{- end}}
+  </devices>
+</domain>

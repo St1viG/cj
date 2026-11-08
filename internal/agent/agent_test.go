@@ -138,10 +138,21 @@ func TestRunWithoutGatewayFails(t *testing.T) {
 	}
 }
 
-func TestUnbuiltDriversFailClearly(t *testing.T) {
-	_, err := agent.NewDriver(config.Config{Driver: "libvirt"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "P2.5") {
-		t.Fatalf("err = %v", err)
+// TestNewLibvirtDriver builds the libvirt driver from the config without
+// connecting to libvirt, and refuses a broken network section.
+func TestNewLibvirtDriver(t *testing.T) {
+	cfg := config.Default()
+	cfg.Driver, cfg.DataDir = "libvirt", t.TempDir()
+	d, err := agent.NewDriver(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name() != "libvirt" {
+		t.Fatalf("Name() = %q", d.Name())
+	}
+	cfg.Network.Subnet = "10.77.0.1/24"
+	if _, err := agent.NewDriver(cfg, nil); err == nil || !strings.Contains(err.Error(), "network") {
+		t.Fatalf("err = %v, want a network error", err)
 	}
 }
 
