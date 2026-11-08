@@ -129,6 +129,10 @@ func (c *Client) SendInventory(inv *agentv1.Inventory) {
 	c.poke()
 }
 
+// Wake makes the sender flush the outbox now, e.g. after records were
+// appended to the store directly.
+func (c *Client) Wake() { c.poke() }
+
 // Connected reports whether a stream is up and has received a snapshot.
 func (c *Client) Connected() bool { return c.connected.Load() }
 

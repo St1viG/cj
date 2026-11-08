@@ -18,6 +18,7 @@ import (
 	"github.com/St1viG/cj/internal/agent/config"
 	"github.com/St1viG/cj/internal/agent/driver"
 	"github.com/St1viG/cj/internal/agent/driver/mock"
+	"github.com/St1viG/cj/internal/agent/metering"
 	"github.com/St1viG/cj/internal/agent/reconcile"
 	"github.com/St1viG/cj/internal/agent/store"
 	"github.com/St1viG/cj/internal/agent/stream"
@@ -37,6 +38,8 @@ type Options struct {
 	InventoryCheck time.Duration
 	// Driver replaces the configured driver (tests).
 	Driver driver.Driver
+	// MeterPeriod overrides the 60 s usage metering period (tests, simulator).
+	MeterPeriod time.Duration
 }
 
 // Inventory cadence (SPEC §7.1): sent at every Hello, whenever a periodic
@@ -162,9 +165,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		Interval: a.opts.ReconcileInterval,
 	})
 
+	meter := &metering.Meter{
+		Driver: a.driver, Store: a.store, Notify: a.stream.Wake, Log: a.log.With("module", "metering"),
+		Period: a.opts.MeterPeriod,
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return a.rec.Run(ctx) })
 	eg.Go(func() error { return a.stream.Run(ctx) })
+	eg.Go(func() error { return meter.Run(ctx) })
 	eg.Go(func() error { return a.inventoryLoop(ctx, InventoryProto(inv, a.cfg)) })
 	err = eg.Wait()
 	a.log.Info("agent stopping", "reason", context.Cause(ctx).Error())

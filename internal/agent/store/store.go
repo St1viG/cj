@@ -31,6 +31,8 @@ var (
 	bucketOutbox   = []byte("outbox")
 	bucketPorts    = []byte("ports")
 	bucketIdentity = []byte("identity")
+	// bucketMeter maps instance id → end of its last metered period.
+	bucketMeter = []byte("meter")
 
 	keyNodeID            = []byte("node_id")
 	keyAppliedGeneration = []byte("applied_generation")
@@ -63,7 +65,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("agent store: open %s: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketMeta, bucketOutbox, bucketPorts, bucketIdentity} {
+		for _, b := range [][]byte{bucketMeta, bucketOutbox, bucketPorts, bucketIdentity, bucketMeter} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -155,6 +157,68 @@ func (s *Store) SetSnapshot(ds *agentv1.DesiredState) error {
 }
 
 // ---- outbox ---------------------------------------------------------------
+
+// Metered returns, per instance, the end of the last period metered.
+func (s *Store) Metered() (map[string]time.Time, error) {
+	out := map[string]time.Time{}
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketMeter).ForEach(func(k, v []byte) error {
+			var t time.Time
+			if err := t.UnmarshalBinary(v); err != nil {
+				return fmt.Errorf("meter mark %s: %w", k, err)
+			}
+			out[string(k)] = t
+			return nil
+		})
+	})
+	return out, err
+}
+
+// AppendUsage appends msgs to the outbox and, in the same transaction, sets
+// the metering marks and forgets the given instances: after a crash the
+// records and the marks agree, so no period is lost (re-sending one is
+// harmless, ingest is idempotent).
+func (s *Store) AppendUsage(msgs []*agentv1.AgentMessage, marks map[string]time.Time, forget []string) error {
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketOutbox)
+		for _, msg := range msgs {
+			n, err := b.NextSequence()
+			if err != nil {
+				return err
+			}
+			m := proto.Clone(msg).(*agentv1.AgentMessage)
+			m.Seq = n
+			raw, err := proto.Marshal(m)
+			if err != nil {
+				return err
+			}
+			if err := b.Put(encodeUint(n), raw); err != nil {
+				return err
+			}
+			msg.Seq = n
+		}
+		mb := tx.Bucket(bucketMeter)
+		for id, t := range marks {
+			v, err := t.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			if err := mb.Put([]byte(id), v); err != nil {
+				return err
+			}
+		}
+		for _, id := range forget {
+			if err := mb.Delete([]byte(id)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("agent store: append usage: %w", err)
+	}
+	return nil
+}
 
 // Append assigns msg the next sequence number, persists it and returns the
 // number. Sequence numbers start at 1, are monotonic and survive restarts
