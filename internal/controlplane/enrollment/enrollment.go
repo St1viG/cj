@@ -55,7 +55,10 @@ type Token struct {
 	SiteID    uuid.UUID
 	Plaintext string
 	ExpiresAt time.Time
-	// Command is ready to paste on the node.
+	// Command is ready to paste on the node, in a checkout with the
+	// `make agent-dist` binaries. The install script enrolls as the service
+	// user (on a Mac, _kondukter, which must own the agent's store), then
+	// starts the service.
 	Command string
 }
 
@@ -82,7 +85,7 @@ func (s *Service) CreateTokenTx(ctx context.Context, q *db.Queries, siteID uuid.
 	}
 	return Token{
 		SiteID: siteID, Plaintext: plain, ExpiresAt: expires,
-		Command: fmt.Sprintf("sudo kondukter-agent enroll --server %s --token %s", s.publicURL, plain),
+		Command: fmt.Sprintf("sudo deploy/nodes/install-agent.sh --server %s --token %s", s.publicURL, plain),
 	}, nil
 }
 

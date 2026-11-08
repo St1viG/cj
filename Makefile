@@ -27,7 +27,7 @@ SQLC         ?= $(if $(filter $(SQLC_VERSION),$(shell sqlc version 2>/dev/null))
 BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
-.PHONY: help tools gen sqlc build test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
+.PHONY: help tools gen sqlc build agent-dist test lint fmt clean db-up db-down db-psql migrate-up migrate-down migrate-status
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z0-9_-]*:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -47,6 +47,17 @@ sqlc: ## Generate internal/store/db from internal/store/{migrations,queries}
 
 build: ## Build every command (kondukter, kondukter-agent, kctl, kdk-sim, …) into bin/
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
+
+# Node platforms: the Fedora x86 nodes and the Apple Silicon Macs.
+AGENT_PLATFORMS ?= linux/amd64 darwin/arm64
+
+agent-dist: ## Cross-compile kondukter-agent for the nodes into bin/kondukter-agent-<os>-<arch>
+	@set -e; for p in $(AGENT_PLATFORMS); do \
+		os=$$(dirname $$p); arch=$$(basename $$p); \
+		echo "kondukter-agent $(VERSION) $$os/$$arch"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
+			-o $(BIN)/kondukter-agent-$$os-$$arch ./cmd/kondukter-agent; \
+	done
 
 test: ## Run Go tests with the race detector (DB tests skip if Postgres is down)
 	KONDUKTER_DATABASE_URL='$(DATABASE_URL)' $(GO) test -race ./...

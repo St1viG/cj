@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  kondukter-agent on a Mac node (roadmap P2.9), installed by install-agent.sh
+  as /Library/LaunchDaemons/io.kondukter.agent.plist.
+
+  A system daemon, so it runs without anyone logged in, but as the dedicated
+  user _kondukter rather than root: Lima refuses to run as root (ADR-0020).
+  Its home is short, so Lima's default LIMA_HOME, ~/.lima, stays within the
+  36 bytes the agent allows. launchd's PATH lacks Homebrew, so PATH is set
+  here too (the driver also looks in /opt/homebrew/bin and /usr/local/bin).
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.kondukter.agent</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/kondukter-agent</string>
+		<string>run</string>
+		<string>--config</string>
+		<string>/Library/Application Support/kondukter-agent/config.yaml</string>
+	</array>
+	<key>UserName</key>
+	<string>_kondukter</string>
+	<key>GroupName</key>
+	<string>_kondukter</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/Users/_kondukter</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<!-- Each limactl the agent runs, and each Lima host agent (which holds a
+	     VM), has its own process group; launchd must not kill them with the
+	     agent's, so VMs outlive an agent restart. -->
+	<key>AbandonProcessGroup</key>
+	<true/>
+	<!-- SIGTERM stops the agent cleanly and leaves the VMs running. -->
+	<key>ExitTimeOut</key>
+	<integer>30</integer>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/kondukter-agent/agent.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/kondukter-agent/agent.log</string>
+</dict>
+</plist>

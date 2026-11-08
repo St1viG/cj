@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 18 of 45 items** (about 15 of 35 estimated sessions) · 5 partly done · 22 not started. Updated with every commit that finishes an item.
+**Done: 18 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -34,7 +34,7 @@
 - [ ] P2.6 — Lima driver · *partly done: built and tested against real VMs on an 8 GB Mac; SSH from MAC-P over the tailnet waits for a second Mac*
 - [ ] P2.7 — Access module (port-map) · *partly done: the port allocator, the nftables backend (checked in a netns lab) and the Lima backend (checked on an 8 GB Mac) are built; the firewalld arrangement and the Linux hardware checks are not*
 - [x] P2.8 — Metering outbox and crash safety
-- [ ] P2.9 — Agent packaging
+- [ ] P2.9 — Agent packaging · *partly done: built and checked in a Fedora systemd container; the installs on FED-D and MAC-A wait for those hosts and the owner's root install*
 
 **P3 — Kondukter v0**
 - [x] P3.1 — Schema, migrations, store layer
@@ -412,7 +412,28 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
   **Metering across a kill (`METER=1`, two trials):** the agent was `SIGKILL`ed for 40 s while the VM ran, across a period boundary. The stub received each minute once and with no gap: 06:50–06:54Z in trial 7 and 06:56–06:59Z in trial 8. The minutes missed while the agent was down were backfilled at the first boundary after the restart. The VM kept running throughout. In trial 7 the first record, for the partial minute of the boot, carried 0 s, because `StartedAt` fell under a second before the boundary.
 
-#### ☐ P2.9 — Agent packaging
+#### ◐ P2.9 — Agent packaging
+- **As built so far (2026-11-08):**
+  - **Build:** `make agent-dist` cross-compiles to `bin/kondukter-agent-<os>-<arch>` for `AGENT_PLATFORMS` (default `linux/amd64 darwin/arm64`). `file` reports the Linux binary as "ELF 64-bit LSB executable, x86-64 … statically linked". `kondukter-agent version` prints the `git describe` version, e.g. `c74263e-dirty (linux/amd64, go1.27.3)`. That run was under emulation on the 8 GB development Mac.
+  - **Fedora unit:** `deploy/nodes/fedora/kondukter-agent.service` runs the agent as root with `Restart=always`. It orders after `libvirtd.service` and also after Fedora's modular `virtqemud`/`virtnetworkd` sockets. It sets `StateDirectory` and `RuntimeDirectory` (`/run/kondukter-agent` for `kdk.nft`).
+    - `RestartSec=60` makes a killed agent show as UNREACHABLE before it returns, as Drill 1 of P4.6 expects. VMs keep running meanwhile.
+  - **macOS plist:** `deploy/nodes/macos/io.kondukter.agent.plist` is a LaunchDaemon run as `_kondukter`, with `HOME=/Users/_kondukter` and Homebrew on `PATH`. It sets `KeepAlive` and logs to `/usr/local/var/log/kondukter-agent/agent.log`.
+    - `AbandonProcessGroup` stops launchd from killing the Lima host agents with the agent.
+  - **Install script:** `deploy/nodes/install-agent.sh` installs the binary and the unit or plist. On macOS it creates the hidden role account `_kondukter` (first free uid/gid from 300, no shell).
+    - It writes a config template only if none exists, with the advertise address from `tailscale ip -4`.
+    - With `--token`, it stops the service and enrolls as the service user, then starts the service. Root-owned stores on Macs are avoided this way.
+    - `DESTDIR=` makes it a dry run that prints the root commands. The enrollment token's paste-ready command now runs this script instead of a bare `kondukter-agent enroll`.
+  - **Checked in a Fedora 45 container with systemd as PID 1 (linux/arm64 build):**
+    - `systemd-analyze verify` passes.
+    - An install with `--no-start` leaves the unit enabled and inactive. A re-install keeps the config, and the service goes `active`. The state and runtime directories are created 0700 and 0750.
+    - With the mock driver and the stub gateway, the instance reached `PHASE_RUNNING`.
+    - After `kill -9`, systemd restarted the agent 61 s later (`NRestarts=1`), and the instance stayed `RUNNING`.
+    - `systemctl stop` ended with `Result=success`, exit 0, and no ERROR lines.
+  - **Checked on the 8 GB development Mac (MAC-A class):** a macOS `DESTDIR` dry run gave the expected file layout and root commands. `plutil -lint` passes.
+- **Open:**
+  - `systemctl is-active` on FED-D (needs that host).
+  - `launchctl print system/io.kondukter.agent` on MAC-A, which needs the owner to run the root install that creates `_kondukter`.
+  - Also on MAC-A: whether `vz` VMs start from the LaunchDaemon's user context, and whether they survive a launchd restart.
 - **Goal:** Installable agent on Fedora and macOS.
 - **Deliverables:** `make agent-dist` cross-compiling with `CGO_ENABLED=0` for `linux/amd64` and `darwin/arm64`, version from `git describe`; `deploy/nodes/fedora/kondukter-agent.service` (`Restart=always`, `After=libvirtd.service`, root, `StateDirectory=kondukter-agent`); `deploy/nodes/macos/io.kondukter.agent.plist` (LaunchDaemon, `KeepAlive`, log paths); `deploy/nodes/install-agent.sh` (copy binary, write config template, enable service).
 - **Note (from P2.6):** Lima refuses to run as root, so the LaunchDaemon sets `UserName` to a dedicated regular user, whose short home keeps `~/.lima` within the 36-byte `LIMA_HOME` limit (ADR-0020 amendment). The data dir must be writable by that user.
