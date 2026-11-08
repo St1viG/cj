@@ -11,6 +11,7 @@ export function Form({
   submitLabel = "Submit",
   resetOnSuccess = false,
   error: outsideError,
+  inline = false,
   children,
 }: {
   onSubmit: (data: FormData) => void | Promise<void>;
@@ -19,6 +20,8 @@ export function Form({
   resetOnSuccess?: boolean;
   /** An error the caller wants shown, e.g. from a mutation it manages itself. */
   error?: unknown;
+  /** A compact row of fields (a filter bar) instead of a stacked form. */
+  inline?: boolean;
   children: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
@@ -51,13 +54,25 @@ export function Form({
 
   const shown = error ?? outsideError;
   return (
-    <form onSubmit={(e) => void handle(e)}>
+    <form className={inline ? "form filters" : "form"} onSubmit={(e) => void handle(e)}>
       <fieldset disabled={pending}>
         {children}
-        <button type="submit">{submitLabel}</button>
+        <div className="actions">
+          <button type="submit" className="p">
+            {submitLabel}
+          </button>
+        </div>
       </fieldset>
-      {pending && <p role="status">Working…</p>}
-      {shown !== undefined && shown !== null && <p role="alert">{errorMessage(shown)}</p>}
+      {pending && (
+        <p role="status" className="working">
+          Working…
+        </p>
+      )}
+      {shown !== undefined && shown !== null && (
+        <p role="alert" className="msg err">
+          {errorMessage(shown)}
+        </p>
+      )}
     </form>
   );
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EarningsPage } from "./EarningsPage";
 import { EnrollPage } from "./EnrollPage";
 import { NodesPage } from "./NodesPage";
 import { SitesPage } from "./SitesPage";
@@ -10,4 +11,5 @@ export const partnerPages: Record<string, ReactNode> = {
   "/partner/nodes": <NodesPage />,
   "/partner/enroll": <EnrollPage />,
   "/partner/utilization": <UtilizationPage />,
+  "/partner/earnings": <EarningsPage />,
 };

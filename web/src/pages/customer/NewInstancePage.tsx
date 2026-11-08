@@ -11,6 +11,7 @@ import { formatAccelerator, formatMiB, formatMoney } from "../../lib/format";
 import { useIdempotencyKey } from "../../lib/ids";
 import { parsePorts } from "../../lib/ports";
 import { useImages, useOffers, useSshKeys } from "./queries";
+import { PageTitle } from "../../components/PageTitle";
 
 /** The API's limit on cloud-init user-data (`MaxUserDataBytes`). */
 const MAX_USER_DATA_BYTES = 16 << 10;
@@ -56,7 +57,7 @@ export function NewInstancePage() {
 
   return (
     <section>
-      <h1>New instance</h1>
+      <PageTitle>New instance</PageTitle>
       {offers.length === 0 ? (
         <EmptyState>No offers are for sale yet.</EmptyState>
       ) : (
@@ -97,7 +98,7 @@ export function NewInstancePage() {
               </option>
             ))}
           </Field>
-          {offerId && !offer && <p role="alert">That offer is not for sale.</p>}
+          {offerId && !offer && <p role="alert" className="msg err">That offer is not for sale.</p>}
 
           {offer && offer.archs.length > 1 && (
             <Field as="select" label="Architecture" name="arch" value={arch} onChange={(e) => setChosenArch(e.currentTarget.value)}>
@@ -108,7 +109,7 @@ export function NewInstancePage() {
               ))}
             </Field>
           )}
-          {offer && offer.archs.length === 0 && <p role="alert">No image can run on this offer yet.</p>}
+          {offer && offer.archs.length === 0 && <p role="alert" className="msg err">No image can run on this offer yet.</p>}
 
           {offer && arch && (
             <>

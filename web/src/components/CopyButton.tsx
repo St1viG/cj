@@ -12,14 +12,15 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
     <>
       <button
         type="button"
+        className="sm"
         onClick={() => {
           void copyText(text).then((ok) => setState(ok ? "copied" : "failed"));
         }}
       >
         {label}
       </button>
-      {state === "copied" && <span role="status"> Copied</span>}
-      {state === "failed" && <span role="status"> Could not copy; select the text and copy it.</span>}
+      {state === "copied" && <span role="status" className="rsn"> Copied</span>}
+      {state === "failed" && <span role="status" className="msg err"> Could not copy; select the text and copy it.</span>}
     </>
   );
 }

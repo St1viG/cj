@@ -44,6 +44,9 @@ type Options struct {
 	MeterPeriod time.Duration
 	// ApplyNFT replaces `nft -f` for the libvirt driver's table (tests).
 	ApplyNFT func(ctx context.Context, ruleset string) error
+	// Firewalld replaces the firewall-cmd calls that arrange firewalld for
+	// the guest bridge (tests).
+	Firewalld access.Cmd
 }
 
 // Inventory cadence (SPEC §7.1): sent at every Hello, whenever a periodic
@@ -105,14 +108,13 @@ func NewDriver(cfg config.Config, log *slog.Logger) (driver.Driver, error) {
 			MaxInstances: cfg.MaxInstances, Log: log.With("module", "lima"),
 		})
 	case "libvirt":
-		subnet, gateway, dns, err := cfg.Network.Parse()
+		subnet, gw, _, err := cfg.Network.Parse()
 		if err != nil {
 			return nil, fmt.Errorf("network: %w", err)
 		}
 		return libvirt.New(libvirt.Options{
-			DataDir:      cfg.DataDir,
-			Network:      libvirt.Network{Bridge: cfg.Network.Bridge, Subnet: subnet, Gateway: gateway, DNS: dns},
-			MaxInstances: cfg.MaxInstances, Log: log.With("module", "libvirt"),
+			DataDir: cfg.DataDir, MaxInstances: cfg.MaxInstances, Log: log.With("module", "libvirt"),
+			Network: libvirt.Network{Bridge: cfg.Network.Bridge, Subnet: subnet, Gateway: gw},
 		})
 	}
 	return nil, fmt.Errorf("unknown driver %q", cfg.Driver)
@@ -174,6 +176,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	synced, err := a.firewall(ports)
 	if err != nil {
 		return err
+	}
+	if a.cfg.Driver == "libvirt" {
+		if _, err := access.EnsureFirewalld(ctx, a.opts.Firewalld, a.cfg.Network.Bridge, a.log.With("module", "access")); err != nil {
+			return fmt.Errorf("arrange firewalld for %s: %w", a.cfg.Network.Bridge, err)
+		}
 	}
 	a.rec = reconcile.New(reconcile.Config{
 		Driver:  a.driver,

@@ -51,28 +51,31 @@ export function Confirm({
     }
   }
 
+  // Destructive actions read red until pressed; the rest stay neutral.
+  const danger = /terminate|delete|revoke|quarantine|force/i.test(label) && !/^un/i.test(label);
   if (!asking) {
     return (
-      <button type="button" disabled={disabled} onClick={() => setAsking(true)}>
+      <button type="button" className={`sm${danger ? " d" : ""}`} disabled={disabled} onClick={() => setAsking(true)}>
         {label}
       </button>
     );
   }
   return (
-    <span role="group" aria-label={message}>
-      <span>{message}</span>{" "}
+    <span role="group" aria-label={message} className="conf">
+      <span>{message}</span>
       {reason !== undefined && (
         <>
           <label>
             {reason} <input value={text} disabled={pending} onChange={(e) => setText(e.target.value)} />
-          </label>{" "}
+          </label>
         </>
       )}
-      <button type="button" disabled={pending} onClick={() => void run()}>
+      <button type="button" className={`sm${danger ? " d solid" : " p"}`} disabled={pending} onClick={() => void run()}>
         {confirmLabel}
-      </button>{" "}
+      </button>
       <button
         type="button"
+        className="sm g"
         disabled={pending}
         onClick={() => {
           setAsking(false);
@@ -82,7 +85,11 @@ export function Confirm({
       >
         Cancel
       </button>
-      {error !== undefined && <span role="alert"> {errorMessage(error)}</span>}
+      {error !== undefined && (
+        <span role="alert" className="msg err">
+          {errorMessage(error)}
+        </span>
+      )}
     </span>
   );
 }

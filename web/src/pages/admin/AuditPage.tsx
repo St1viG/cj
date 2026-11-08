@@ -5,6 +5,7 @@ import { keys } from "../../api/keys";
 import { type Column, DataTable } from "../../components/DataTable";
 import { useParam } from "../../hooks/useParam";
 import { formatTimestamp, shortId } from "../../lib/format";
+import { PageTitle } from "../../components/PageTitle";
 
 export const AUDIT_PAGE_SIZE = 50;
 
@@ -61,22 +62,22 @@ export function AuditPage() {
       header: "Actor",
       cell: (e) => (
         <>
-          <button type="button" title="Show only this actor" onClick={() => setActor(e.actorId)}>
+          <button type="button" className="sm g m" title="Show only this actor" onClick={() => setActor(e.actorId)}>
             {e.actorDisplay || e.actorId}
           </button>{" "}
           ({e.actorType.replace("_", " ")})
         </>
       ),
     },
-    { header: "Action", cell: (e) => e.action },
+    { header: "Action", cell: (e) => e.action, className: "m ink-h" },
     { header: "Target", cell: (e) => <Target target={e.target} /> },
     { header: "Payload", cell: (e) => <Payload entry={e} /> },
   ];
 
   return (
     <section>
-      <h1>Audit log</h1>
-      <div>
+      <PageTitle>Audit log</PageTitle>
+      <div className="filterrow">
         <label>
           Action{" "}
           <select value={action} onChange={(e) => setAction(e.target.value)}>
@@ -92,7 +93,7 @@ export function AuditPage() {
         {actor && (
           <>
             Actor: {actorName ?? actor}{" "}
-            <button type="button" onClick={() => setActor("")}>
+            <button type="button" className="sm" onClick={() => setActor("")}>
               Any actor
             </button>
           </>
