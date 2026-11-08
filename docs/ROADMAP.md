@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 23 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -22,7 +22,7 @@
 - [ ] P1.3 — S2b: VFIO passthrough of the laptop RTX (FED-L)
 - [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac · *partly done: spike run and findings written; SSH from another tailnet machine waits for a second Mac*
 - [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale
-- [ ] P1.6 — S5: GPU guest image build
+- [x] P1.6 — S5: GPU guest image build
 - [ ] P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
 
 **P2 — Agent v0**
@@ -291,14 +291,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0001, ADR-0014, ADR-0024
 - **Size:** S
 
-#### ☐ P1.6 — S5: GPU guest image build
+#### ☑ P1.6 — S5: GPU guest image build
 - **Goal:** A pre-baked qcow2 that boots to a working `nvidia-smi` in under two minutes on the demo GPUs.
 - **Deliverables:** `docs/spikes/S5-gpu-guest-image.md`; `deploy/images/ubuntu-gpu/build.sh` using `virt-customize` (libguestfs) on a Fedora host: Ubuntu 24.04 cloud image → NVIDIA driver + CUDA toolkit + Docker + NVIDIA Container Toolkit + a prebuilt llama.cpp CUDA binary + one small GGUF model → `virt-sysprep`. One variant if S2b showed a single driver branch serves both GPUs, otherwise `ubuntu-gpu-pascal` (580 closed modules, CUDA 12.x) and `ubuntu-gpu` (open modules, current CUDA). Outputs `*.qcow2`, `*.sha256`, `manifest.json` (name, version, arch, `accel_stack`, compatible GPU models). `deploy/images/COMPAT.md` — the driver ↔ GPU compatibility matrix.
 - **Acceptance criteria:** A VM from the image on FED-D passes `nvidia-smi` within 120 s of `virsh start` with the image cached (measured); image size recorded; the build script is re-runnable with driver and CUDA versions pinned in variables.
 - **Depends on:** P1.2, P1.3
 - **Decisions required:** D-21 (ADR-0015), ADR-0012
 - **Size:** M
-- **Done so far (2026-11-08):** `gpu-image.qcow2`, a flattened copy of the S2a guest (driver 580.178.04, CUDA 12.0, llama.cpp and a 0.5B model; 15.6 GB), boots under the libvirt driver to a working `nvidia-smi` in 30 s from the create call with the image cached, well inside the 120 s criterion, and registers in the catalog through `kondukter seed catalog --file` with its digest. **Not done:** `deploy/images/ubuntu-gpu/build.sh` (a reproducible `virt-customize` build with pinned versions), `virt-sysprep` to clear the spike's leftover state, the manifest, `COMPAT.md`, and the second variant for FED-L (S2b).
+- **As built (2026-11-08):** `deploy/images/ubuntu-gpu/build.sh` (no root, about two minutes) builds the Pascal image with `virt-customize` from the pinned Ubuntu 24.04 release: NVIDIA 580 with Ubuntu's precompiled kernel modules (installed first so apt does not choose DKMS), Docker and the NVIDIA container toolkit, then `virt-sysprep`. No CUDA toolkit, models or serving software: those are the customer's, put there with SSH or user-data. Output is 2.6 GB with a `.sha256` and a manifest of the installed package versions. Through the control plane on FED-D, `kctl create` reaches `RUNNING` in 27 s and `nvidia-smi` in 28 s with the image cached (38 s and 39 s when the agent first fetches it, after its digest changed); a container sees the GPU through `--gpus all`; a customer's user-data script ran at first boot and downloaded its own model. `COMPAT.md` and `docs/spikes/S5-gpu-guest-image.md` are written. **Open:** the second image for FED-L waits for S2b, and `demo.yaml` keeps an empty digest until an image is built and served.
 
 #### ☐ P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
 - **Goal:** Freeze what P2–P4 build against.
