@@ -1,5 +1,6 @@
 # A mock-driver agent shaped like FED-D: one simulated GTX 1060.
 server: http://kondukter.test:8080
+gateway: 127.0.0.1:8443
 driver: mock
 data_dir: /tmp/kdk-agent
 reserved:

@@ -194,9 +194,15 @@ func (Phase) EnumDescriptor() ([]byte, []int) {
 }
 
 // AgentMessage is everything the agent sends.
+//
+// InstanceStatus and UsageBatch travel through the agent's persistent outbox
+// and carry a seq; they are resent after every reconnect until acked. Hello,
+// Heartbeat and Inventory are rebuilt on every connection, carry seq 0 and
+// are never acked or resent.
 type AgentMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Persisted across restarts, monotonic per node, starting at 1.
+	// Persisted across restarts, monotonic per node, starting at 1; 0 for
+	// messages outside the outbox.
 	Seq uint64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
 	// Types that are valid to be assigned to Body:
 	//
@@ -1728,7 +1734,8 @@ func (x *UsageRecord) GetRunningSeconds() uint32 {
 	return 0
 }
 
-// Ack is cumulative: every AgentMessage with seq <= Ack.seq is durable.
+// Ack is cumulative: every AgentMessage with seq <= Ack.seq is durable. The
+// gateway sends it only after the enclosing database transaction commits.
 type Ack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Seq           uint64                 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`

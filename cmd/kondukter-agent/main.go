@@ -54,7 +54,7 @@ func newVersionCmd() *cobra.Command {
 }
 
 func newRunCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the agent until SIGINT or SIGTERM",
 		Args:  cobra.NoArgs,
@@ -68,7 +68,8 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			a, err := agent.New(cfg, log)
+			insecure, _ := cmd.Flags().GetBool("insecure-dev")
+			a, err := agent.New(cfg, log, agent.Options{InsecureDev: insecure})
 			if err != nil {
 				return err
 			}
@@ -76,6 +77,8 @@ func newRunCmd() *cobra.Command {
 			return errors.Join(runErr, a.Close())
 		},
 	}
+	cmd.Flags().Bool("insecure-dev", false, "do not verify the gateway certificate (kdk-stubgw only)")
+	return cmd
 }
 
 func newEnrollCmd() *cobra.Command {
