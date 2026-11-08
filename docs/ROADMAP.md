@@ -802,7 +802,6 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
   - **Fallbacks:** FED-L as CPU-only; FED-D unavailable, with `kdk-sim --gpu 1` labelled as simulated; Tailscale down, with every address moved to the LAN. The LAN steps rely on the gateway certificate being issued from `KONDUKTER_GATEWAY_HOSTS` at every start, and on the agent's `gateway` and `advertise_address` keys. The sheet marks them as not rehearsed.
   - The only measured time in it is spike S3's 21 s from create to SSH on a Mac with a cached image. The sheet says the others are limits or targets.
   - **Left:**
-    - P5.5's stage view, which the drills point to;
     - the times on the real fleet;
     - the acceptance run: a team member who did not build the system runs the happy path from the document alone.
 - **Goal:** Anyone on the team can run the demo from the document.
@@ -818,7 +817,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - T-1 day, T-30 min, T-0 and after, each item with an owner and how to do it.
     - The owners are three roles (Presenter, Fleet, Second) with a table to fill in names when the date is set.
     - What `preflight.sh` checks and what it cannot.
-    - A known-issues sheet: the colliding host keys, quarantine and terminate, `demo-reset` with a node down, plain `kctl watch`, the watchdog's restart grace, the cold image cache, a certificate issued without Tailscale, the lid, and the stage page not yet merged.
+    - A known-issues sheet: the colliding host keys, quarantine and terminate, `demo-reset` with a node down, plain `kctl watch`, the watchdog's restart grace, the cold image cache, a certificate issued without Tailscale, and the lid.
   - **`hack/preflight.sh`:** prints `ok`, `warn`, `skip` or `FAIL` per check and exits 1 on any FAIL. It checks:
     - this Mac: disk, AC power, `demo-sleep.sh`;
     - the tailnet: running, five devices online;
