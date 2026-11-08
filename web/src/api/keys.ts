@@ -13,4 +13,15 @@ export const keys = {
     list: (params: object = {}) => ["instances", "list", params] as const,
     detail: (id: string) => ["instances", "detail", id] as const,
   },
+  catalog: {
+    offers: (filter: object = {}) => ["catalog", "offers", filter] as const,
+    images: (offerId: string, arch: string) => ["catalog", "images", offerId, arch] as const,
+  },
+  account: {
+    sshKeys: ["account", "ssh-keys"] as const,
+    apiKeys: ["account", "api-keys"] as const,
+  },
+  usage: {
+    list: (period: object = {}) => ["usage", "list", period] as const,
+  },
 };

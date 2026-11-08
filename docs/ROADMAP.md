@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 19 of 45 items** (about 16 of 35 estimated sessions) · 8 partly done · 18 not started. Updated with every commit that finishes an item.
+**Done: 20 of 45 items** (about 17 of 35 estimated sessions) · 8 partly done · 17 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -59,7 +59,7 @@
 
 **P5 — Web app skeleton**
 - [x] P5.1 — Web scaffold, auth, routing, embedding
-- [ ] P5.2 — Customer pages (contents only)
+- [x] P5.2 — Customer pages (contents only)
 - [ ] P5.3 — Partner pages
 - [ ] P5.4 — Operator pages
 - [ ] P5.5 — Stage view data
@@ -685,13 +685,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** `web/` is a pnpm workspace package beside the root one (`pnpm-workspace.yaml`, one lockfile). Both pin `@bufbuild/protobuf` at 2.16.0, the version `protoc-gen-es` generated `gen/ts` for, so the generated client and the app share a single copy; the app imports the client through an `@gen/*` alias. Vite 8, React 19, React Router 8, TanStack Query 5, connect-es 2 and TypeScript 7, all at exact versions. `src/routes.ts` is the `docs/WEB_PAGES.md` table as data: the router, the area navigation and the placeholder pages read it, and `routes.test.ts` fails if a route or its RPC list differs from the document, or names an RPC the generated services lack. Every page is a placeholder naming its RPCs until P5.2–P5.5 set its `element`. Each area belongs to one role (`/app` customer, `/partner` partner, `/admin` and `/stage` operator). Another role's area redirects to the user's own home; a signed-out visit, an unknown path inside an area included, goes to `/login` and returns after login only if the role may open it. Any Unauthenticated answer from any call clears the session. A `GetMe` failure that is not a 401 shows the error with Retry instead of logging the user out. `useWatchInstance` reopens a broken stream, and one the server closes while the instance is live, with jittered backoff that restarts on every message. It stops on a terminal phase or a permanent error, and writes each update into the cached detail and list results. The Go server now answers the services under `/api` as well as at the root (`kctl` and agents keep the root), through `http.StripPrefix` on the same mux, and serves the app at `/` from `web/embed.go`. An existing file is served as it is, a path without an extension that matches nothing gets `index.html`, a missing asset is a 404, and only GET and HEAD are answered. Hashed assets are cached as immutable and `index.html` as `no-cache`. `web/dist` is ignored except `.gitkeep`, which the Vite build puts back, so `go build` works without Node. A binary built that way logs a warning and answers 503 with a note to run `make web`. `make web` runs install, typecheck, tests and build; `make web-dev` starts Vite with `/api` proxied to `kondukter serve`. The CI `web` job is enabled and also builds the binary and runs `go test ./web/` against the real build. The compose Dockerfile gains a Node stage that builds the app first. Checked: 65 Vitest tests (guards and redirects per role, login errors, logout, the stream loop against an in-memory server, the primitives, the document/route sync); `go test -race ./...` and `golangci-lint` green. Against a real `kondukter serve` with the seeded accounts, headless Chrome ran 19 checks on the embedded production bundle: signed-out redirects, a wrong password, each user's landing page, wrong-role redirects, a hard load of a deep link with the session cookie, and logout, with no uncaught page exceptions. In the same setup, a mock-driver agent let an instance be followed from `PENDING` through `RUNNING` to `TERMINATED` by `runWatch`, over plain HTTP/1.1. **Open:** the changed Dockerfile has not been built (only its Node-stage commands, on their own, in a scratch directory); the CI `web` job has not run; nobody has clicked through the app in a normal, headed browser.
 
-#### ☐ P5.2 — Customer pages (contents only)
+#### ☑ P5.2 — Customer pages (contents only)
 - **Goal:** C-2 … C-6 (minus money) in the browser as data and actions.
 - **Deliverables:** `/app/offers`: table (accelerator kind / model / count, vCPU, RAM, disk, region, capacity class, price per hour) with filter controls bound to `ListOffers`. `/app/instances/new`: form (offer → images compatible by arch and accelerator, SSH keys multi-select, ports list, optional user-data) → `CreateInstance` → detail. `/app/instances`: list (id, phase, offer, region, running minutes, estimated cost, created) with live phase. `/app/instances/:id`: phase and reason, timeline from events, connection info (`ssh` command with copy), port mappings, usage and cost, terminate with confirm. `/app/keys`: SSH keys and API keys with add / delete / revoke. Loading, empty and error states on every page.
 - **Acceptance criteria:** Against the real fleet: create an instance in the browser, watch it reach `RUNNING` without refresh, copy the SSH command and log in, terminate it; `docs/WEB_PAGES.md` entries match the rendered pages.
 - **Depends on:** P5.1
 - **Decisions required:** ADR-0022, ADR-0023
 - **Size:** M
+- **As built (2026-11-08):** All six `/app/*` routes are real pages, and `docs/WEB_PAGES.md` has a section describing each. It includes `/app/usage`, which is in the route map but not in this item's deliverables. Pages register through `pages/registry.tsx`, and the route table in `routes.ts` is data only. `ListUsage` came out of the detail page's RPC list, because `Instance.usage` is filled on every read. The list polls every 5 s and follows at most three in-flight instances with `WatchInstance`, because a browser allows about six HTTP/1.1 connections per host and each stream holds one. The demo is served over plain HTTP, which browsers treat as an insecure context. `crypto.randomUUID` and `navigator.clipboard` do not exist there, so the pages use `newId()` and `copyText()` in `src/lib/`, with fallbacks. `CreateInstance` reuses its idempotency key only for an identical retry within one visit to the form. `CreateAPIKey` always uses a fresh key, because the server's replay returns the key without its secret. The offers filter lives in the query key as plain numbers: TanStack Query hashes keys as JSON and cannot hold a `bigint`, which the first version of the RAM filter did. Two P5.1 details changed. A deliberate logout now starts the next login at home (the guard no longer attaches a return page when the sign-out was chosen), where it used to depend on which of two redirects ran first. Permanent errors (not found, no permission) are no longer retried. The tests use a longer Testing Library wait (8 s), so the suite passes on a busy or single-core machine. Checked: 151 Vitest tests (the pages against an in-memory Kondukter, including the stream-driven live updates and the failure paths), `pnpm typecheck`, and `make web`. Against a real `kondukter serve` with a mock-driver agent, reached through a non-loopback address so the page was an insecure context, headless Chrome ran 18 checks. It added an SSH key and an API key (the secret shown once). It created an instance from an offer, watched it go `scheduled → provisioning → running` without a reload, read the `ssh` command and port mappings, and used Copy through the fallback path. It then saw the usage page and terminated the instance, followed live to `terminated`. There were no console errors. **Open:** the acceptance step "log in with the copied command" needs a real VM (the mock driver has none), so it waits for P4.5; the changed pages have not been clicked through in a headed browser.
 
 #### ☐ P5.3 — Partner pages
 - **Goal:** P-1 … P-4 as data and actions.
@@ -772,9 +773,9 @@ Not scheduled. Collected so nothing is forgotten.
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+1 partly) |
-| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 1 |
+| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 2 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **19 (+8 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **20 (+8 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

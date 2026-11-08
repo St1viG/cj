@@ -7,6 +7,7 @@ import { AreaLayout } from "./pages/AreaLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PagePlaceholder } from "./pages/PagePlaceholder";
+import { pageElements } from "./pages/registry";
 import { areas } from "./routes";
 
 /** `/`: signed in goes home, signed out goes to the login page. */
@@ -39,7 +40,7 @@ export function AppRoutes() {
           <Route key={area.area} element={<RoleRoute role={area.role} />}>
             <Route path={base} element={area.shell ? <AreaLayout area={area} /> : <Outlet />}>
               {area.pages.map((page) => {
-                const element = page.element ?? <PagePlaceholder page={page} />;
+                const element = pageElements[page.path] ?? <PagePlaceholder page={page} />;
                 // A page at the area's own path is its index route.
                 return page.path === base ? (
                   <Route key={page.path} index element={element} />

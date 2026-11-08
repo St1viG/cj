@@ -1,5 +1,4 @@
 import { Role } from "@gen/kondukter/api/v1/types_pb";
-import type { ReactNode } from "react";
 import type { Area } from "./auth/roles";
 
 /**
@@ -18,8 +17,6 @@ export interface PageDef {
   rpcs: readonly string[];
   /** Listed in the area's navigation. */
   nav?: boolean;
-  /** The page itself; a placeholder that names its RPCs until its item lands. */
-  element?: ReactNode;
 }
 
 export interface AreaDef {
@@ -70,12 +67,7 @@ export const areas: readonly AreaDef[] = [
         path: "/app/instances/:id",
         title: "Instance",
         item: "P5.2",
-        rpcs: [
-          "InstanceService.GetInstance",
-          "InstanceService.WatchInstance",
-          "UsageService.ListUsage",
-          "InstanceService.TerminateInstance",
-        ],
+        rpcs: ["InstanceService.GetInstance", "InstanceService.WatchInstance", "InstanceService.TerminateInstance"],
       },
       { path: "/app/keys", title: "Keys", item: "P5.2", nav: true, rpcs: ["AccountService.*"] },
       { path: "/app/usage", title: "Usage", item: "P5.2", nav: true, rpcs: ["UsageService.ListUsage"] },

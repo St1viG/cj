@@ -1,13 +1,14 @@
 import type { Principal } from "@gen/kondukter/api/v1/auth_pb";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useCallback, useContext, useMemo } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef } from "react";
 import { useApi } from "../api/ApiProvider";
 import { isUnauthenticated, toConnectError } from "../api/errors";
 import { keys } from "../api/keys";
 
 export type Auth =
   | { status: "loading" }
-  | { status: "signedOut"; login: Login }
+  /** `afterLogout`: the person chose to sign out, as opposed to a session that ended behind their back. */
+  | { status: "signedOut"; login: Login; afterLogout: boolean }
   | { status: "signedIn"; me: Principal; logout: () => Promise<void> }
   | { status: "error"; error: Error; retry: () => void };
 
@@ -24,6 +25,8 @@ const AuthContext = createContext<Auth | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { auth } = useApi();
   const qc = useQueryClient();
+  // Set by logout() before the cache changes, so the guards can tell it from an expired session.
+  const loggedOut = useRef(false);
 
   const meQuery = useQuery({
     queryKey: keys.me,
@@ -47,7 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!resp.principal) throw new Error("the server sent no principal");
       return resp.principal;
     },
-    onSuccess: (principal) => qc.setQueryData(keys.me, principal),
+    onSuccess: (principal) => {
+      loggedOut.current = false;
+      qc.setQueryData(keys.me, principal);
+    },
   });
 
   const login = useCallback<Login>((email, password) => doLogin({ email, password }), [doLogin]);
@@ -59,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Whatever the server said, this browser is done with the session. The
       // rest of the cache belongs to the old user; `me` stays so its observer
       // sees the change.
+      loggedOut.current = true;
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== keys.me[0] });
       qc.setQueryData(keys.me, null);
     }
@@ -69,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isPending) return { status: "loading" };
     if (isError) return { status: "error", error: toConnectError(error), retry: () => void refetch() };
     if (data) return { status: "signedIn", me: data, logout };
-    return { status: "signedOut", login };
+    return { status: "signedOut", login, afterLogout: loggedOut.current };
   }, [isPending, isError, error, data, refetch, login, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
