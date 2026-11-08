@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { ShapeSchema } from "@gen/kondukter/api/v1/catalog_pb";
-import { CapacityClass, InstancePhase, MoneySchema, Protocol } from "@gen/kondukter/api/v1/types_pb";
+import { AcceleratorHealth, CapacityClass, InstancePhase, MoneySchema, NodeStatus, Protocol } from "@gen/kondukter/api/v1/types_pb";
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { copyText } from "./clipboard";
@@ -9,14 +9,20 @@ import {
   canTerminate,
   capacityLabel,
   formatAccelerator,
+  formatAge,
+  formatClock,
+  formatDuration,
   formatMinutes,
   formatMiB,
   formatMoney,
   formatTimestamp,
+  healthLabel,
   isTransitional,
+  nodeStatusLabel,
   phaseLabel,
   protocolLabel,
   shortId,
+  withReason,
 } from "./format";
 import { newId, useIdempotencyKey } from "./ids";
 import { parsePorts } from "./ports";
@@ -105,6 +111,24 @@ describe("formatting", () => {
     expect(formatMinutes(125n)).toBe("125 min");
     expect(formatMinutes(undefined)).toBe("—");
     expect(shortId("9f1c2d3e-aaaa-bbbb-cccc-000000000000")).toBe("9f1c2d3e");
+  });
+
+  it("node labels", () => {
+    expect(nodeStatusLabel(NodeStatus.UNREACHABLE)).toBe("unreachable");
+    expect(withReason("draining", "kernel update")).toBe("draining (kernel update)");
+    expect(withReason("ready", "")).toBe("ready");
+    expect(healthLabel(AcceleratorHealth.OK)).toBe("ok");
+  });
+
+  it("durations and ages", () => {
+    expect(formatDuration(45.9)).toBe("45 s");
+    expect(formatDuration(-3)).toBe("0 s");
+    expect(formatDuration(725)).toBe("12 min 05 s");
+    expect(formatDuration(3 * 3600 + 7 * 60 + 30)).toBe("3 h 07 min");
+    const then = new Date(2026, 10, 8, 14, 5, 9);
+    expect(formatAge(timestampFromDate(then), then.getTime() + 41_500)).toBe("41 s");
+    expect(formatAge(undefined, then.getTime())).toBe("—");
+    expect(formatClock(then.getTime())).toBe("14:05:09");
   });
 
   it("dates in the viewer's zone", () => {

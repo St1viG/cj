@@ -191,4 +191,25 @@ describe("Confirm", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("already terminating");
     expect(screen.getByText("Terminate i1?")).toBeTruthy();
   });
+
+  it("passes the typed reason, trimmed, and starts empty the next time", async () => {
+    const onConfirm = vi.fn();
+    render(<Confirm label="Drain" message="Drain n1?" reason="Reason (optional)" onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByRole("button", { name: "Drain" }));
+    fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "  kernel update " } });
+    fireEvent.click(screen.getByRole("button", { name: "Drain" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith("kernel update"));
+    await waitFor(() => expect(screen.queryByText("Drain n1?")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Drain" }));
+    expect((screen.getByLabelText("Reason (optional)") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Drain" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenLastCalledWith(""));
+  });
+
+  it("has no reason field unless asked for one", () => {
+    render(<Confirm label="Undrain" message="Undrain n1?" onConfirm={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Undrain" }));
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
 });

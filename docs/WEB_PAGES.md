@@ -26,10 +26,10 @@ Access rules, as built:
 | `/app/keys` | customer | SSH keys (name, fingerprint, added); API keys (name, prefix, created, last used) | Add SSH key; delete SSH key; create API key (shown once); revoke API key | `AccountService.*` |
 | `/app/usage` | customer | per-instance running minutes and estimated cost for a period; totals | Period filter | `UsageService.ListUsage` |
 | `/partner` | partner | redirect to `/partner/nodes` | — | — |
-| `/partner/sites` | partner | sites: name, region, node count, nodes by status | Open nodes filtered by site | `PartnerService.ListSites` |
-| `/partner/nodes` | partner | table: hostname, status, arch, driver, agent version, vCPU / RAM / disk free vs total, accelerators (model, health), active instance count, last seen. **Never** customer identities or instance specs. | Drain; Undrain | `PartnerService.ListNodes`, `PartnerService.DrainNode`, `PartnerService.UndrainNode` |
-| `/partner/enroll` | partner | site picker; last generated token's one-time `kondukter-agent enroll --server … --token …` command with expiry | Create enrollment token | `PartnerService.CreateEnrollmentToken` |
-| `/partner/utilization` | partner | per-node utilization numbers for a period (allocated vs total vCPU / RAM / accelerators, instance-hours) as a table | Period filter | `PartnerService.GetUtilization` |
+| `/partner/sites` | partner | sites: name, region, country, network mode, node count, nodes by status, created | Open nodes filtered by site; enroll a node at the site | `PartnerService.ListSites` |
+| `/partner/nodes` | partner | table: hostname, site, status + reason, arch, driver, agent version, vCPU / RAM / disk free vs total, accelerators (model, health), active instance count, last seen. **Never** customer identities or instance specs. | Site filter; Drain (confirm, optional reason); Undrain (confirm) | `PartnerService.ListNodes`, `PartnerService.DrainNode`, `PartnerService.UndrainNode`, `PartnerService.ListSites` |
+| `/partner/enroll` | partner | site picker; last generated token's one-time `install-agent.sh --server … --token …` command with expiry | Create enrollment token; copy command | `PartnerService.CreateEnrollmentToken`, `PartnerService.ListSites` |
+| `/partner/utilization` | partner | per-node utilization numbers for a period (allocated vs allocatable vCPU / RAM / disk / accelerators, active instances, instance minutes) as a table; the period and total | Site filter; period filter | `PartnerService.GetUtilization`, `PartnerService.ListSites` |
 | `/admin` | operator | redirect to `/admin/nodes` | — | — |
 | `/admin/nodes` | operator | all nodes across partners: site, status, inventory summary, generation lag (`desired − observed`), last seen | Quarantine; Drain; Undrain | `AdminService.ListNodes`, `AdminService.QuarantineNode`, `PartnerService.DrainNode` |
 | `/admin/instances` | operator | all instances: id, org, phase, node, offer, created | Force terminate (confirm) | `AdminService.ListInstances`, `AdminService.ForceTerminateInstance` |
@@ -60,6 +60,17 @@ All six `/app/*` routes render real pages; the rows above are what they show.
 - **`/app/usage`**: per-instance running minutes and estimated cost, with totals. The period is whole days in the browser's time zone, from the start of "From" to the end of "To"; either may be left empty.
 
 Prices are shown as estimates (ADR-0023); nothing here moves money.
+
+## Partner pages, as built (P5.3)
+
+All four `/partner/*` routes render real pages. Node status and accelerator health read in lower case, as phases do on the customer pages (`draining (kernel update)`).
+
+- **`/partner/sites`**: the table above. Each row links to its nodes (`/partner/nodes?site=…`) and to enrollment with that site chosen (`/partner/enroll?site=…`).
+- **`/partner/nodes`**: the table above, refetched every 5 s. Free is total minus reserved minus allocated, shown as `6 of 8`. Accelerators read `GeForce GTX 1060 6GB (ok, in use)`. Last seen is an age (`12 s ago`, the time as a tooltip) that keeps counting between refetches. The site filter is `?site=` in the URL and is sent to `ListNodes`. Drain is offered only on a ready node and Undrain only on a draining or maintenance one, as the server's transitions allow. Both ask in place; Drain takes an optional reason, which the server keeps as the status reason and in the audit log (`drained by <email>` when empty). A drained node with no instances left goes to maintenance on its own.
+- **`/partner/enroll`**: the site picker (`?site=` chooses one), then the command exactly as the server words it, with Copy and the expiry. The page says it is shown once and works once; Done removes it. Every Create sends a fresh idempotency key, because the token cannot be shown again.
+- **`/partner/utilization`**: the period the server used (with no dates, the last 24 hours) and the total instance minutes. Per node: vCPU, RAM, disk and accelerators allocated now of allocatable (`2 of 8 (25%)`), active instances and instance minutes in the period. The site filter is the same `?site=` as on the nodes page; the period is whole local days, "To" included, as on `/app/usage`.
+
+`nodeColumns` and `DrainActions` (`pages/nodes.tsx`) are shared with `/admin/nodes`; `SiteFilter` and `useSites` are in `pages/partner/sites.tsx`; `useParam` (`hooks/`) binds one search param to a filter; `Confirm` takes an optional `reason` field.
 
 ## Explicitly not here
 
