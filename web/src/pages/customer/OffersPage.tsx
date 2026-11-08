@@ -8,6 +8,7 @@ import { Form } from "../../components/Form";
 import { capacityLabel, formatAccelerator, formatGiB, formatMiB, formatMoney } from "../../lib/format";
 import { type OffersFilter, useOffers } from "./queries";
 import { PageTitle } from "../../components/PageTitle";
+import { RentGpuCard } from "./RentGpuCard";
 
 const columns: Column<Offer>[] = [
   { header: "Shape", cell: (o) => o.shape?.name },
@@ -80,6 +81,7 @@ export function OffersPage() {
   return (
     <section>
       <PageTitle>Offers</PageTitle>
+      <RentGpuCard />
       <Form inline key={formKey} submitLabel="Apply filters" onSubmit={(data) => setFilter(filterFromForm(data))}>
         <Field as="select" label="Region" name="region" defaultValue={filter.region ?? ""}>
           <Options values={options.regions} />
