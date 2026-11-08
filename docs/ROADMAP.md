@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 23 of 45 items** (about 18.5 of 35 estimated sessions) · 8 partly done · 14 not started. Updated with every commit that finishes an item.
+**Done: 23 of 45 items** (about 18.5 of 35 estimated sessions) · 9 partly done · 13 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -54,7 +54,7 @@
 - [ ] P4.2 — Mac node bootstrap
 - [ ] P4.3 — Demo deployment of the control plane · *partly done: built and run on the development Mac; the checks from FED-D and on MAC-P wait for those hosts*
 - [ ] P4.4 — Enroll the fleet
-- [ ] P4.5 — Happy path on hardware
+- [ ] P4.5 — Happy path on hardware · *partly done: `hack/demo-happy.sh` passes three runs in a row against mock agents on the development Mac; the runs on the real fleet wait for the hosts and the GPU image*
 - [ ] P4.6 — Failure path on hardware · *partly done: `hack/demo-failure.sh` and the drill text pass against mock agents on the development Mac; the runs on the real fleet wait for the hosts*
 
 **P5 — Web app skeleton**
@@ -652,7 +652,26 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0012
 - **Size:** S
 
-#### ☐ P4.5 — Happy path on hardware
+#### ◐ P4.5 — Happy path on hardware
+- **As built so far (2026-11-08):**
+  - **[`hack/demo-happy.sh`](../hack/demo-happy.sh) [RUNS]** does the storyline as the seeded customer, with `kctl` and a throwaway API key per role that is revoked on exit. Each run:
+    - creates `cpu-2x2` / `ubuntu-cpu` arm64 and the GPU offer at the same time;
+    - follows both with a timestamped line per phase change;
+    - checks the driver, the architecture and the time to `RUNNING` (≤ 90 s on `lima`, ≤ 120 s on `libvirt`), and that `kctl nodes` shows the GPU allocated;
+    - over `kctl ssh --exec`, checks `uname -m` prints `aarch64`, `nvidia-smi` names the offer's GPU model, and llama.cpp with `-ngl 99` reports every layer offloaded;
+    - polls `kctl get` until the minutes grow, and checks the cost is ceil(minutes × price per hour / 60);
+    - terminates both, then checks `TERMINATED` and that every node's free capacity, instance count and GPUs in `kctl nodes` are as before;
+    - over SSH to each node, checks that no libvirt domain, instance directory, nft forward or Lima instance of either is left;
+    - prints the timings per node type and appends them to `.demo/happy-timings.tsv`.
+  - A failed check prints `FAIL` and the run goes on; the script exits non-zero at the end. On exit it terminates whatever a failed run left running. `kctl ssh` gets a `known_hosts` file of the run's own, since a new instance can reuse an old one's host port.
+  - The llama.cpp step expects `llama-completion` or `llama-cli` on the GPU image's `PATH` and a model at `/opt/models/*.gguf`. P1.6 must match that, or `HAPPY_LLAMA` overrides it.
+  - The drill helpers (`log`, `ok`, `bad`, `short`) moved from `demo-failure.sh` to `hack/demo-lib.sh`. [`docs/DEMO.md`](DEMO.md) has a "Happy path" section: the steps, the overrides and the results.
+  - **Verified on the development Mac** against a separate compose project, with three mock-driver agents: two arm64 and one amd64 with a simulated GTX 1060. The database had a placeholder `ubuntu-gpu-pascal` row.
+    - `hack/demo-happy.sh 3`, with the expected drivers set to `mock`, passed three runs in a row. The Mac instance reached `RUNNING` in 3–4 s and the GPU one in 5–6 s. The minutes grew, the cost matched, both terminated within 1 s, and the capacity came back.
+    - `HAPPY_GPU=0` passed.
+    - A run that expected `lima` failed as it should, and still terminated both instances.
+    - The checks inside the VMs and on the nodes were skipped, since the mocks have no VM.
+  - **Left:** the three runs on the real fleet after `make demo-reset`, which wait for P4.4 and for the GPU image from P1.6.
 - **Goal:** The showcase's main storyline works end-to-end on real machines.
 - **Deliverables:** `hack/demo-happy.sh` using `kctl`: create `cpu-2x2` arm64 → lands on a Mac → `kctl ssh --exec … uname -m` prints `aarch64`; create the GPU offer → lands on FED-D → `nvidia-smi` and a short llama.cpp prompt with `-ngl 99` over SSH; `kctl get` shows minutes and cost growing; terminate both → `TERMINATED` and `kctl nodes` shows capacity back; a timing log per node type.
 - **Acceptance criteria:** The script passes three times in a row after `make demo-reset`; with cached images, create → `RUNNING` ≤ 90 s on the Macs and ≤ 120 s on FED-D; afterwards `virsh list --all`, `limactl list`, the overlay directories and `nft list table inet kdk` show nothing left; the GPU provisions successfully on the third run.
@@ -819,10 +838,10 @@ Not scheduled. Collected so nothing is forgotten.
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+2 partly) |
+| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+3 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 4 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **23 (+8 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **23 (+9 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

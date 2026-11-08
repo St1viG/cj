@@ -1,6 +1,69 @@
 # Demo run sheet
 
-> **Draft.** Roadmap P6.1 writes the full run sheet: the narrative, the happy path step by step, the GPU moment, fallbacks and the "do not" list. So far this file has the failure drills (P4.6).
+> **Draft.** Roadmap P6.1 writes the full run sheet: the narrative, the happy path step by step, the GPU moment, fallbacks and the "do not" list. So far this file has the happy-path script (P4.5) and the failure drills (P4.6).
+
+## Happy path
+
+[`hack/demo-happy.sh`](../hack/demo-happy.sh) runs the main storyline with `kctl` and checks each step. Run it on MAC-P from the repo root, after `make demo-up` and `make demo-reset`, with the fleet `READY`. `hack/demo-happy.sh 3` does three runs in a row, which is the roadmap's acceptance test.
+
+The script signs in as the seeded customer and partner. It creates a throwaway API key for each, so `kctl` runs exactly as it would for the presenter, and revokes both on exit. `kctl ssh` uses a `known_hosts` file of the run's own, since a new instance can get an old one's host port.
+
+Each run does this:
+
+1. **Mac:** creates `cpu-2x2` with `ubuntu-cpu` arm64. It must reach `RUNNING` within 90 s on a `lima` node, and `kctl ssh --exec ID -- uname -m` must print `aarch64`.
+2. **GPU:** at the same time, creates `gpu-gtx1060-1x` with `ubuntu-gpu-pascal`. It must reach `RUNNING` within 120 s on a `libvirt` node, and `kctl nodes` must show that node's GPU allocated. Inside the VM:
+   - `nvidia-smi` must name the offer's GPU model;
+   - a short llama.cpp prompt with `-ngl 99` must report `offloaded N/N layers to GPU`. The script prints the eval-time lines.
+3. **Usage:** `kctl get` on both, until the running minutes grow. The estimated cost must equal ceil(minutes × price per hour / 60) in cents.
+4. **Terminate:** terminates both. Each must reach `TERMINATED`, and `kctl nodes`, as the partner, must show every node's free capacity, instance count and GPUs as before the run.
+5. **Node checks:** over SSH to each node, nothing of either instance may be left.
+   - Fedora: `virsh list --all`, `/var/lib/kondukter-agent/instances` and `nft list chain inet kdk forwards`.
+   - Mac: `limactl list` as `_kondukter`.
+
+A failed check prints `FAIL` and the run carries on, so one run reports every failure. The script then exits non-zero. On exit it terminates anything a failed run left running, so the next run starts from the same fleet.
+
+Each run ends with a table of the times from create to `RUNNING`, from `RUNNING` to the first SSH login, and for the terminate. The same rows are appended to `.demo/happy-timings.tsv`.
+
+**The GPU image contract.** By default the llama.cpp step runs the first `/opt/models/*.gguf` in the VM with `llama-completion`, or else `llama-cli -no-cnv`, from `PATH`. The GPU image (P1.6) must provide both, or `HAPPY_LLAMA` must give the command.
+
+**Say,** during the waits: "The Mac VM boots on Apple's Virtualization framework through Lima. The GPU VM gets the whole GTX 1060 through VFIO, so the guest runs NVIDIA's own driver."
+
+### Overrides
+
+| Variable | Meaning |
+|---|---|
+| `HAPPY_GPU` | `0` skips the GPU instance. |
+| `HAPPY_MAC_OFFER`, `HAPPY_MAC_IMAGE`, `HAPPY_MAC_ARCH` | The Mac instance. Defaults: `cpu-2x2`, `ubuntu-cpu`, `arm64`. |
+| `HAPPY_GPU_OFFER`, `HAPPY_GPU_IMAGE` | The GPU instance. Defaults: `gpu-gtx1060-1x`, `ubuntu-gpu-pascal`. |
+| `HAPPY_MAC_DRIVER`, `HAPPY_GPU_DRIVER` | The driver each must land on. Defaults: `lima`, `libvirt`. |
+| `HAPPY_MAC_LIMIT`, `HAPPY_GPU_LIMIT` | Seconds allowed from create to `RUNNING`. Defaults: 90, 120. |
+| `HAPPY_SSH` | `0` skips the checks inside the VMs. Mock-driver nodes, which have no VM, skip them unless it is `1`. |
+| `HAPPY_NODE_CHECKS` | `0` skips step 5. Mock-driver nodes always skip it. |
+| `HAPPY_NODE_SSH` | How to reach a node by its hostname for step 5. Default: `ssh -o BatchMode=yes -o ConnectTimeout=10`. |
+| `HAPPY_SSH_KEY` | Public key for the instances, with its private half beside it. Default: `~/.ssh/id_ed25519.pub`, then the ECDSA and RSA keys, else a throwaway key. |
+| `HAPPY_LLAMA` | The prompt command run in the GPU VM. |
+| `HAPPY_GROW` | Seconds to wait for the minutes to grow. Default 150. |
+| `HAPPY_TIMEOUT` | Seconds to wait for any other change. Default 300. |
+| `HAPPY_LOG` | The timing log. Default `.demo/happy-timings.tsv`. |
+| `KCTL` | The `kctl` binary. Default: `bin/kctl`, then `PATH`, else one built into a temporary directory. |
+| `DEMO_ENV_FILE`, `COMPOSE_PROJECT_NAME`, `KONDUKTER_API_PORT` | As for `hack/demo.sh`. |
+
+### Results so far
+
+**2026-11-08, dev Mac, three mock-driver agents**, against a separate compose project:
+
+- mock-a and mock-b, arm64;
+- mock-g, amd64, with a simulated GTX 1060 6GB.
+
+The database had a placeholder `ubuntu-gpu-pascal` row, since the real image waits for P1.6. The mocks have no VM, so the checks inside the VMs and on the nodes were skipped.
+
+| Run | Result |
+|---|---|
+| `hack/demo-happy.sh 3` with `HAPPY_MAC_DRIVER=mock HAPPY_GPU_DRIVER=mock` | Pass, three runs in a row. The Mac instance was `RUNNING` in 3–4 s and the GPU one in 5–6 s, with the GPU allocated. The minutes grew from 0–1 to 2 within about a minute, and the cost followed the formula: 0.01 EUR and 0.02 EUR. Both were `TERMINATED` within 1 s, and the capacity came back. |
+| `HAPPY_GPU=0` | Pass, with the Mac instance alone. |
+| The default `lima` driver against the mocks | Fails as it should, on the placement check, and still terminates both instances. |
+
+**Still to do:** three runs on the real fleet after `make demo-reset`, which waits for P4.4 and P1.6. They check the 90 s and 120 s limits with cached images, `aarch64` from the Macs, and `nvidia-smi` and llama.cpp on FED-D. They also run the node checks, and the GPU must provision on the third run.
 
 ## Failure drills
 

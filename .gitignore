@@ -20,6 +20,9 @@ node_modules/
 # Guest images built locally (P1.6)
 /deploy/images/dist/
 
+# Demo script output, such as the happy path's timing log (P4.5)
+/.demo/
+
 # Local configuration and secrets
 .env
 .env.*
