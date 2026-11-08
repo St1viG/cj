@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 17 of 45 items** (about 14 of 35 estimated sessions) · 6 partly done · 22 not started. Updated with every commit that finishes an item.
+**Done: 18 of 45 items** (about 15 of 35 estimated sessions) · 6 partly done · 21 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -58,7 +58,7 @@
 - [ ] P4.6 — Failure path on hardware
 
 **P5 — Web app skeleton**
-- [ ] P5.1 — Web scaffold, auth, routing, embedding
+- [x] P5.1 — Web scaffold, auth, routing, embedding
 - [ ] P5.2 — Customer pages (contents only)
 - [ ] P5.3 — Partner pages
 - [ ] P5.4 — Operator pages
@@ -581,13 +581,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 **Exit criterion:** every in-scope §4 customer, partner and operator flow works in the browser against the real fleet with live updates; `docs/WEB_PAGES.md` matches what the pages render; `pnpm typecheck` clean.
 
-#### ☐ P5.1 — Web scaffold, auth, routing, embedding
+#### ☑ P5.1 — Web scaffold, auth, routing, embedding
 - **Goal:** A running SPA wired to the API with login and role-based routes, ready for the owner's design pass.
 - **Deliverables:** `web/` (Vite + React + TypeScript, pnpm); `@connectrpc/connect-web` transport to `/api` with cookie credentials; generated client from `gen/ts`; TanStack Query provider; React Router routes per `docs/WEB_PAGES.md` (`/login`, `/app/*`, `/partner/*`, `/admin/*`, `/stage`); `useMe()` on `AuthService.GetMe` and role guards; a `useWatchInstance()` hook over the server stream; plain unstyled `DataTable`, `Form`, `Field`, `Confirm` primitives; `go:embed web/dist` served by `kondukter` at `/` with SPA fallback; `make web` (install, typecheck, build) and the CI `web` job enabled; `docs/WEB_PAGES.md` filled in.
 - **Acceptance criteria:** `make web && make build` embeds the SPA; each seeded user lands in the right area after login; unauthenticated `/app` redirects to `/login`; `pnpm typecheck` clean; `web/src/` contains no CSS beyond `reset.css` and no UI library dependency.
 - **Depends on:** P3.8, P0.3
 - **Decisions required:** ADR-0022, ADR-0021
 - **Size:** M
+- **As built (2026-11-08):** `web/` is a pnpm workspace package beside the root one (`pnpm-workspace.yaml`, one lockfile). Both pin `@bufbuild/protobuf` at 2.16.0, the version `protoc-gen-es` generated `gen/ts` for, so the generated client and the app share a single copy; the app imports the client through an `@gen/*` alias. Vite 8, React 19, React Router 8, TanStack Query 5, connect-es 2 and TypeScript 7, all at exact versions. `src/routes.ts` is the `docs/WEB_PAGES.md` table as data: the router, the area navigation and the placeholder pages read it, and `routes.test.ts` fails if a route or its RPC list differs from the document, or names an RPC the generated services lack. Every page is a placeholder naming its RPCs until P5.2–P5.5 set its `element`. Each area belongs to one role (`/app` customer, `/partner` partner, `/admin` and `/stage` operator). Another role's area redirects to the user's own home; a signed-out visit, an unknown path inside an area included, goes to `/login` and returns after login only if the role may open it. Any Unauthenticated answer from any call clears the session. A `GetMe` failure that is not a 401 shows the error with Retry instead of logging the user out. `useWatchInstance` reopens a broken stream, and one the server closes while the instance is live, with jittered backoff that restarts on every message. It stops on a terminal phase or a permanent error, and writes each update into the cached detail and list results. The Go server now answers the services under `/api` as well as at the root (`kctl` and agents keep the root), through `http.StripPrefix` on the same mux, and serves the app at `/` from `web/embed.go`. An existing file is served as it is, a path without an extension that matches nothing gets `index.html`, a missing asset is a 404, and only GET and HEAD are answered. Hashed assets are cached as immutable and `index.html` as `no-cache`. `web/dist` is ignored except `.gitkeep`, which the Vite build puts back, so `go build` works without Node. A binary built that way logs a warning and answers 503 with a note to run `make web`. `make web` runs install, typecheck, tests and build; `make web-dev` starts Vite with `/api` proxied to `kondukter serve`. The CI `web` job is enabled and also builds the binary and runs `go test ./web/` against the real build. The compose Dockerfile gains a Node stage that builds the app first. Checked: 65 Vitest tests (guards and redirects per role, login errors, logout, the stream loop against an in-memory server, the primitives, the document/route sync); `go test -race ./...` and `golangci-lint` green. Against a real `kondukter serve` with the seeded accounts, headless Chrome ran 19 checks on the embedded production bundle: signed-out redirects, a wrong password, each user's landing page, wrong-role redirects, a hard load of a deep link with the session cookie, and logout, with no uncaught page exceptions. In the same setup, a mock-driver agent let an instance be followed from `PENDING` through `RUNNING` to `TERMINATED` by `runWatch`, over plain HTTP/1.1. **Open:** the changed Dockerfile has not been built (only its Node-stage commands, on their own, in a scratch directory); the CI `web` job has not run; nobody has clicked through the app in a normal, headed browser.
 
 #### ☐ P5.2 — Customer pages (contents only)
 - **Goal:** C-2 … C-6 (minus money) in the browser as data and actions.
@@ -676,9 +677,9 @@ Not scheduled. Collected so nothing is forgotten.
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+3 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
-| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
+| P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 1 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **17 (+5 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **18 (+5 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

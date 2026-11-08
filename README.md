@@ -24,6 +24,8 @@ On macOS with Homebrew:
 make tools       # Brewfile formulae, pinned Go codegen plugins, pinned protoc-gen-es
 make gen         # gen/go and gen/ts from proto/ (buf)
 make build       # bin/kondukter, bin/kondukter-agent, bin/kctl
+make web         # web app: install, typecheck, test, build into web/dist; run before make build to embed it
+make web-dev     # Vite dev server on :5173, proxying /api to a running `kondukter serve`
 make test lint   # go test -race; buf lint + breaking, go vet, golangci-lint
 make db-up       # Postgres 17 in docker compose on 127.0.0.1:55432 (db-psql, db-down)
 make migrate-up  # apply the embedded migrations (kondukter migrate up)
@@ -35,7 +37,7 @@ A local stack, with `KONDUKTER_DATABASE_URL` from `.env.example` and a `KONDUKTE
 ```sh
 bin/kondukter seed catalog                          # demo region, shapes, offers, images
 SEED_PASSWORD=… bin/kondukter seed accounts         # demo orgs and users; prints one API key each, once
-bin/kondukter serve                                 # API on :8080, agent gateway on :8443
+bin/kondukter serve                                 # API and web app on :8080, agent gateway on :8443
 bin/kondukter token create                          # one-time enrollment token for site demo-dc/demo
 bin/kondukter-agent --config agent.yaml enroll --server http://localhost:8080 --token kdk_enr_…
 bin/kondukter-agent --config agent.yaml run         # driver: mock needs no VMM
