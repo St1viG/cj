@@ -140,7 +140,7 @@ func WriteSeed(path, id, hostname string, keys []string, custom []byte) error {
 		return err
 	}
 	// QEMU runs as another user and must be able to read it.
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // G302: QEMU reads the seed ISO as another user
 		return err
 	}
 	return os.Rename(tmp.Name(), path)

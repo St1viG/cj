@@ -19,7 +19,7 @@ import (
 func serve(t *testing.T, body string) (driver.ImageRef, *atomic.Int32) {
 	t.Helper()
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		_, _ = w.Write([]byte(body))
 	}))

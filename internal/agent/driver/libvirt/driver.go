@@ -114,7 +114,7 @@ func New(opts Options) (*Driver, error) {
 		}
 	}
 	for _, dir := range []string{opts.DataDir, join(opts.DataDir, "images"), join(opts.DataDir, "instances")} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: QEMU runs as another user and must traverse the data dir
 			return nil, err
 		}
 	}
@@ -216,7 +216,7 @@ func Validate(spec driver.InstanceSpec, hostArch string) error {
 	case spec.VCPU < 1 || spec.RAMMiB < 1 || spec.DiskGiB < 1:
 		return fmt.Errorf("libvirt: %d vCPU, %d MiB, %d GiB: every size must be positive", spec.VCPU, spec.RAMMiB, spec.DiskGiB)
 	}
-	if _, err := check(spec.Image); err != nil {
+	if err := check(spec.Image); err != nil {
 		return err
 	}
 	if _, err := MetaData(spec.ID, spec.Hostname); err != nil {
@@ -315,7 +315,7 @@ func (dr *Driver) create(ctx context.Context, spec driver.InstanceSpec, hostdevs
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: QEMU runs as another user and must traverse the instance dir
 		return err
 	}
 	name := DomainName(spec.ID)
@@ -402,7 +402,7 @@ func NetworkXML(n Network) (string, error) {
 
 func net4Mask(bits int) string {
 	m := ^uint32(0) << (32 - bits)
-	return fmt.Sprintf("%d.%d.%d.%d", byte(m>>24), byte(m>>16), byte(m>>8), byte(m))
+	return fmt.Sprintf("%d.%d.%d.%d", byte(m>>24), byte(m>>16), byte(m>>8), byte(m)) //nolint:gosec // G115: byte() keeps the low 8 bits of each shifted octet on purpose
 }
 
 // Delete implements driver.Driver. A background create is canceled first.
