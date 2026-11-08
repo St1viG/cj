@@ -12,7 +12,9 @@ Node bootstrap and agent packaging.
   command for anything wrong. `host.env.example` lists its settings.
 - `macos/io.kondukter.agent.plist` is the LaunchDaemon for a Mac node. The
   agent runs as the dedicated user `_kondukter`, because Lima refuses to run
-  as root. The Lima bootstrap script will be added here (P4.2).
+  as root. The Lima bootstrap script will be added here (P4.2). So far
+  `macos/bootstrap.sh --check` is there: a read-only check of the Mac (Apple
+  Silicon, Lima, the agent, Tailscale, power and sleep).
 
 ## Installing the agent
 
