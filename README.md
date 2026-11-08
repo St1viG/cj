@@ -14,7 +14,7 @@ Control plane and node agent that turn idle partner datacenter capacity (GPUs in
 
 ## Where to start
 
-P0.1–P0.3 are done; P0.4 (compose stack and CI) is done locally and waits for a first push to exercise CI. The hardware spikes P1.1–P1.3, P1.5 and P1.6 need the Fedora hosts; the next items that run on a Mac alone are P1.4 (Lima spike), P3.1 (schema) and P2.1–P2.4 (agent core).
+P0.1–P0.3 are done; P0.4 (compose stack and CI) is done locally and waits for a first push to exercise CI. The hardware spikes P1.1–P1.3, P1.5 and P1.6 need the Fedora hosts; P3.1 (schema and store) is done; the next items that run on a Mac alone are P1.4 (Lima spike), P2.1–P2.4 (agent core) and P3.2–P3.3.
 
 ## Development
 
@@ -26,6 +26,7 @@ make gen         # gen/go and gen/ts from proto/ (buf)
 make build       # bin/kondukter, bin/kondukter-agent, bin/kctl
 make test lint   # go test -race; buf lint + breaking, go vet, golangci-lint
 make db-up       # Postgres 17 in docker compose on 127.0.0.1:55432 (db-psql, db-down)
+make migrate-up  # apply the embedded migrations (kondukter migrate up)
 make             # list all targets
 ```
 
