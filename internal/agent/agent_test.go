@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -138,4 +140,96 @@ func TestUnbuiltDriversFailClearly(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "P2.5") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+// TestDesiredFileEditConverges is P2.3's end-to-end check: editing the stub
+// gateway's desired-state file creates and deletes mock instances within 2 s.
+func TestDesiredFileEditConverges(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) {
+		if err := os.WriteFile(filepath.Join(dir, "default.yaml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("generation: 1\n")
+
+	var (
+		mu       sync.Mutex
+		statuses = map[string]agentv1.Phase{}
+	)
+	srv := stubgw.New(dir, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv.OnMessage = func(_ string, m *agentv1.AgentMessage) {
+		if st := m.GetInstanceStatus(); st != nil {
+			mu.Lock()
+			statuses[st.GetId()] = st.GetPhase()
+			mu.Unlock()
+		}
+	}
+	tlsCfg, err := stubgw.SelfSignedTLS("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := srv.NewGRPCServer(tlsCfg)
+	go func() { _ = g.Serve(lis) }()
+	defer g.Stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Watch(ctx) }()
+
+	cfg, err := config.Load("config/testdata/mock.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DataDir, cfg.Gateway = t.TempDir(), lis.Addr().String()
+	cfg.Mock.ProvisionDelay, cfg.Mock.FailureRate = 200*time.Millisecond, 0
+	log, _ := logging.New(io.Discard, "info")
+	a, err := agent.New(cfg, log, agent.Options{InsecureDev: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+		_ = a.Close()
+	}()
+
+	phase := func(id string) agentv1.Phase {
+		mu.Lock()
+		defer mu.Unlock()
+		return statuses[id]
+	}
+	onHost := func() string {
+		raw, _ := os.ReadFile(filepath.Join(cfg.DataDir, "mock", "instances.json"))
+		return string(raw)
+	}
+	waitUntil := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("not within 2s: %s", what)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Let the agent connect and the watcher start before editing.
+	time.Sleep(500 * time.Millisecond)
+	write("generation: 2\ninstances:\n  - {id: i-1, vcpu: 2, ram_mib: 2048, disk_gib: 20, accelerator_ids: [\"0000:01:00.0\"]}\n")
+	waitUntil("i-1 created and RUNNING", func() bool {
+		return phase("i-1") == agentv1.Phase_PHASE_RUNNING && strings.Contains(onHost(), `"id": "i-1"`)
+	})
+
+	write("generation: 3\n")
+	waitUntil("i-1 deleted", func() bool {
+		return phase("i-1") == agentv1.Phase_PHASE_DELETED && !strings.Contains(onHost(), `"id": "i-1"`)
+	})
 }

@@ -7,13 +7,16 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/St1viG/cj/gen/go/kondukter/agent/v1"
 	"github.com/St1viG/cj/internal/agent/config"
 	"github.com/St1viG/cj/internal/agent/driver"
 	"github.com/St1viG/cj/internal/agent/driver/mock"
+	"github.com/St1viG/cj/internal/agent/reconcile"
 	"github.com/St1viG/cj/internal/agent/store"
 	"github.com/St1viG/cj/internal/agent/stream"
 	"github.com/St1viG/cj/internal/version"
@@ -26,6 +29,8 @@ type Options struct {
 	InsecureDev bool
 	// Stream overrides stream timing (tests).
 	Stream stream.Config
+	// ReconcileInterval overrides the 30 s reconcile tick (tests).
+	ReconcileInterval time.Duration
 }
 
 // Agent is one running kondukter-agent.
@@ -36,6 +41,7 @@ type Agent struct {
 	store  *store.Store
 	driver driver.Driver
 	stream *stream.Client
+	rec    *reconcile.Reconciler
 }
 
 // New opens the local store and builds the configured driver.
@@ -55,7 +61,9 @@ func New(cfg config.Config, log *slog.Logger, opts Options) (*Agent, error) {
 func NewDriver(cfg config.Config) (driver.Driver, error) {
 	switch cfg.Driver {
 	case "mock":
-		return mock.New(cfg.Mock, cfg.MaxInstances), nil
+		return mock.New(cfg.Mock, mock.Options{
+			StateDir: filepath.Join(cfg.DataDir, "mock"), MaxInstances: cfg.MaxInstances,
+		})
 	case "libvirt", "lima":
 		return nil, fmt.Errorf("driver %q is not built yet (roadmap P2.5/P2.6)", cfg.Driver)
 	}
@@ -114,7 +122,22 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 	a.stream = stream.New(sc, a.store, a, a.log)
-	err = a.stream.Run(ctx)
+	a.rec = reconcile.New(reconcile.Config{
+		Driver: a.driver,
+		State:  a.store,
+		Report: func(st *agentv1.InstanceStatus) error {
+			_, err := a.stream.Enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_InstanceStatus{InstanceStatus: st}})
+			return err
+		},
+		Fresh:    a.stream.Connected,
+		Log:      a.log,
+		Interval: a.opts.ReconcileInterval,
+	})
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error { return a.rec.Run(ctx) })
+	eg.Go(func() error { return a.stream.Run(ctx) })
+	err = eg.Wait()
 	a.log.Info("agent stopping", "reason", context.Cause(ctx).Error())
 	return err
 }
@@ -161,11 +184,10 @@ func (a *Agent) Heartbeat(ctx context.Context) *agentv1.Heartbeat {
 
 // DesiredState implements stream.Handler.
 func (a *Agent) DesiredState(ds *agentv1.DesiredState) {
-	if err := a.store.SetSnapshot(ds); err != nil {
-		a.log.Error("store snapshot", "err", err)
-		return
-	}
 	a.log.Info("desired state received", "generation", ds.GetGeneration(), "instances", len(ds.GetInstances()))
+	if err := a.rec.Offer(ds); err != nil {
+		a.log.Error("store snapshot", "err", err)
+	}
 }
 
 // Drain implements stream.Handler.

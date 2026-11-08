@@ -8,6 +8,7 @@ import (
 	agentv1 "github.com/St1viG/cj/gen/go/kondukter/agent/v1"
 	"github.com/St1viG/cj/internal/agent/config"
 	"github.com/St1viG/cj/internal/agent/driver"
+	"github.com/St1viG/cj/internal/agent/reconcile"
 )
 
 func capabilitiesProto(c driver.Capabilities) *agentv1.Capabilities {
@@ -55,24 +56,10 @@ func resourcesProto(r driver.Resources) *agentv1.Resources {
 	return &agentv1.Resources{Vcpu: clampU32(r.VCPU), RamMib: clampU64(r.RAMMiB), DiskGib: clampU64(r.DiskGiB)}
 }
 
-func phaseProto(p driver.Phase) agentv1.Phase {
-	switch p {
-	case driver.PhaseProvisioning:
-		return agentv1.Phase_PHASE_PROVISIONING
-	case driver.PhaseRunning:
-		return agentv1.Phase_PHASE_RUNNING
-	case driver.PhaseFailed:
-		return agentv1.Phase_PHASE_FAILED
-	case driver.PhaseDeleting:
-		return agentv1.Phase_PHASE_DELETING
-	}
-	return agentv1.Phase_PHASE_UNSPECIFIED
-}
-
 func statusProto(o driver.Observed, gen uint64) *agentv1.InstanceStatus {
 	return &agentv1.InstanceStatus{
 		Id:                o.ID,
-		Phase:             phaseProto(o.Phase),
+		Phase:             reconcile.PhaseProto(o.Phase),
 		Reason:            o.Reason,
 		GuestIps:          o.GuestIPs,
 		AppliedGeneration: gen,
