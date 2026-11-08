@@ -281,14 +281,8 @@ func (h instanceHandler) get(ctx context.Context, q *db.Queries, p Principal, id
 
 func (h instanceHandler) ListInstances(ctx context.Context, req *connect.Request[apiv1.ListInstancesRequest]) (*connect.Response[apiv1.ListInstancesResponse], error) {
 	p := mustPrincipal(ctx)
-	size := int(req.Msg.GetPageSize())
-	switch {
-	case size <= 0:
-		size = defaultPageSize
-	case size > maxPageSize:
-		size = maxPageSize
-	}
-	params := db.ListOrgInstancesParams{OrgID: p.Org.ID, IncludeTerminal: req.Msg.GetIncludeTerminal(), MaxRows: int32(size + 1)}
+	size := pageSize(req.Msg.GetPageSize())
+	params := db.ListOrgInstancesParams{OrgID: p.Org.ID, IncludeTerminal: req.Msg.GetIncludeTerminal(), MaxRows: int32(size + 1)} //nolint:gosec // size ≤ maxPageSize
 	if tok := req.Msg.GetPageToken(); tok != "" {
 		at, id, err := decodePageToken(tok)
 		if err != nil {
@@ -367,6 +361,10 @@ func (h instanceHandler) TerminateInstance(ctx context.Context, req *connect.Req
 				return nil, err
 			}
 			eff, changed = e, after.Phase != before.Phase
+			if err := audit(ctx, tx, p, ActionTerminateInstance, "instance/"+id.String(),
+				map[string]any{"from": string(before.Phase), "to": string(after.Phase)}); err != nil {
+				return nil, err
+			}
 			if resp.Instance, err = h.get(ctx, tx.Queries, p, id); err != nil {
 				return nil, err
 			}

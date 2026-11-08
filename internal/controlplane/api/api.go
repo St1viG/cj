@@ -16,6 +16,7 @@ import (
 
 	"github.com/St1viG/cj/gen/go/kondukter/api/v1/apiv1connect"
 	"github.com/St1viG/cj/internal/controlplane/controller"
+	"github.com/St1viG/cj/internal/controlplane/enrollment"
 	"github.com/St1viG/cj/internal/controlplane/events"
 	"github.com/St1viG/cj/internal/store"
 )
@@ -34,6 +35,12 @@ type API struct {
 	// WatchRefresh re-reads a watched instance even without a bus signal;
 	// 30 s if zero.
 	WatchRefresh time.Duration
+	// SecureCookies marks the session cookie Secure (API behind HTTPS).
+	SecureCookies bool
+	// Enrollment issues node enrollment tokens (PartnerService).
+	Enrollment *enrollment.Service
+	// Gateway says whether a node's stream is up (AdminService).
+	Gateway interface{ Connected(nodeID uuid.UUID) bool }
 }
 
 // New returns an API over s. Bus, Scheduler and Instances come from the
@@ -49,6 +56,8 @@ func (a *API) Mount(mux *http.ServeMux) {
 	mux.Handle(apiv1connect.NewInstanceServiceHandler(instanceHandler{a}, opts))
 	mux.Handle(apiv1connect.NewAccountServiceHandler(accountHandler{a}, opts))
 	mux.Handle(apiv1connect.NewAuthServiceHandler(authHandler{a}, opts))
+	mux.Handle(apiv1connect.NewPartnerServiceHandler(partnerHandler{a}, opts))
+	mux.Handle(apiv1connect.NewAdminServiceHandler(adminHandler{a}, opts))
 }
 
 // Janitor purges expired idempotency keys every hour until ctx ends.

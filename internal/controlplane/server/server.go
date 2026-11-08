@@ -133,6 +133,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	s.Nodes = &controller.NodeWatchdog{Store: st, Log: log.With("module", "nodes"), Hooks: hooks}
 	s.Instances = &controller.InstanceController{Store: st, Log: log.With("module", "instances"), Hooks: hooks}
 	s.API = api.New(st, log.With("module", "api"), s.Bus, s.Scheduler, s.Instances)
+	s.API.Enrollment, s.API.Gateway = s.Enrollment, s.Gateway
+	s.API.SecureCookies = strings.HasPrefix(cfg.PublicURL, "https://")
 
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {

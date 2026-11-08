@@ -166,19 +166,3 @@ func (h accountHandler) DeleteSSHKey(ctx context.Context, req *connect.Request[a
 	}
 	return connect.NewResponse(resp), nil
 }
-
-type authHandler struct{ *API }
-
-var errSessions = errors.New("browser sessions arrive with P3.8; use an API key")
-
-func (authHandler) Login(context.Context, *connect.Request[apiv1.LoginRequest]) (*connect.Response[apiv1.LoginResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errSessions)
-}
-
-func (authHandler) Logout(context.Context, *connect.Request[apiv1.LogoutRequest]) (*connect.Response[apiv1.LogoutResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errSessions)
-}
-
-func (h authHandler) GetMe(ctx context.Context, _ *connect.Request[apiv1.GetMeRequest]) (*connect.Response[apiv1.GetMeResponse], error) {
-	return connect.NewResponse(&apiv1.GetMeResponse{Principal: principalProto(mustPrincipal(ctx))}), nil
-}
