@@ -33,6 +33,8 @@
 #   PREFLIGHT_ALLOW_MOCK=1       quiet the warning about mock-driver nodes
 #   PREFLIGHT_IMAGES='a b'       only check these image names are cached
 #                                (default: every active image for the node)
+#   PREFLIGHT_IMAGE_DIR=DIR      where the image files and their .sha256 are (default
+#                                deploy/images/dist; set it on the box in remote mode)
 #   PREFLIGHT_STALE=60           seconds without a heartbeat before a node warns
 #   PREFLIGHT_NODE_HOSTS=''      "fedora:fedora": run each node's bootstrap.sh
 #                                --check over SSH (target:kind; local:macos runs here)
@@ -323,11 +325,12 @@ if [ -n "$jar" ]; then
 	# The files the image server hands out must be the bytes the catalog
 	# names, or agents reject them.
 	shopt -s nullglob
-	files=("$root"/deploy/images/dist/*.qcow2 "$root"/deploy/images/dist/*.img)
+	imgdir=${PREFLIGHT_IMAGE_DIR:-$root/deploy/images/dist}
+	files=("$imgdir"/*.qcow2 "$imgdir"/*.img)
 	shopt -u nullglob
-	if [ "$remote" = 1 ]; then
+	if [ "$remote" = 1 ] && [ -z "${PREFLIGHT_IMAGE_DIR:-}" ]; then
 		files=()
-		skip "image files and their .sha256 (remote mode: they are on the box; run this there, or see its *.manifest.json)"
+		skip "image files and their .sha256 (remote mode: they are on the box; run this there with PREFLIGHT_IMAGE_DIR set)"
 	elif [ "${#files[@]}" = 0 ]; then
 		skip "deploy/images/dist holds no image files (the CPU images come from Ubuntu's own server)"
 	fi

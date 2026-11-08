@@ -700,7 +700,9 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - **Drill 3:**
       - drain as the partner;
       - a `cpu-2x2` instance created as the customer must reach `RUNNING` on another node of the drained node's architecture;
-      - then the script terminates it and undrains the node. `KEEP=1` keeps both.
+      - then the script terminates it and undrains the node. `KEEP=1` keeps both;
+      - **on a single node** (added 2026-11-08, [ADR-0026](adr/0026-macs-out-of-scope.md)): the instance must stay `PENDING` for `DRILL_HOLD` seconds (15), then the node is undrained and the instance must reach `RUNNING` on it. Tested on a mock stack with one READY amd64 node: pass, with `RUNNING` 2 s after the undrain.
+    - **On the single box**, drills 1 and 2 take `KILL_CMD`, `DRILL_CP_STOP`, `DRILL_CP_START` and `DRILL_PSQL` for the systemd service and the docker Postgres. Drill 2 passed on the mock stack with commands that stand in for them; none of it has run on FED-D.
   - The helpers it shares with `demo.sh` (`rpc`, `login`, `compose`, the env file and ports) moved to `hack/demo-lib.sh`.
   - **[`docs/DEMO.md`](DEMO.md)** begins with the drill text: setup, the timeline, checks, what to say, overrides, results. P6.1 adds the rest of the run sheet.
   - Drill 2 depends on the watchdog's restart grace from 80fcfec. Without it, a restarted control plane marked nodes `UNREACHABLE` while their agents were still in reconnect backoff.
@@ -797,6 +799,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 #### ◐ P6.1 — Demo script
 - **As built so far (2026-11-08):** [`docs/DEMO.md`](DEMO.md) is the whole run sheet.
+  - **Reworked for one box (2026-11-08, [ADR-0026](adr/0026-macs-out-of-scope.md)):** the cast is the laptop and FED-D, which runs both the control plane and the GPU node. The Mac parts, the arm64 CPU instance and FED-L as a second node are gone. The CPU instance is amd64 on FED-D. The operator part reorders so the force terminate comes before the quarantine, since there is one node. Drill 3 becomes: drain the only node, a new instance stays `pending`, undrain, it runs. Between runs is `sudo deploy/demo/reset.sh`, which does not undo drains or quarantines. The fallback for FED-D being down is the whole demo on the laptop with `kdk-sim`. The Tailscale-down fallback only changes the laptop's address and the agent's `advertise_address`. The web app is not yet in the binary on FED-D, so the browser parts wait for that.
   - **Setup:** the cast and the accounts; the screen layout (a browser profile per role, two `kctl` panes with a config file per role); a running order with a target time per part, about 25 minutes in all.
   - **The story:** the problem and the partners, told over `/admin/nodes`.
   - **Happy path in the browser:** step by step, with the expected screen at each step, what to say during the provisioning wait, and the GPU moment (`nvidia-smi` and the llama.cpp prompt that `hack/demo-happy.sh` checks).
@@ -838,7 +841,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - the image-cache check, which has only been tried with the jq filter on fixtures, since every node in the test was a mock;
     - the names of the three roles.
 - **Goal:** Zero surprises on the day.
-- **Deliverables:** `docs/DEMO_CHECKLIST.md`: T-1 day (OS updates frozen, images pre-pulled and digests verified, `make demo-reset`, seeded accounts verified, one rehearsal); T-30 min (`tailscale status` shows all five online, `demo-sleep.sh on`, chargers, FED-D reachable, `bootstrap.sh --check` green, `kctl nodes` four `READY`, a browser window logged in per role, terminal font size); T-0 (reset once more); after (`demo-sleep.sh off`). `hack/preflight.sh` automating the checkable items. A known-issues sheet with workarounds collected during P4 and P5.
+- **Deliverables:** `docs/DEMO_CHECKLIST.md`: T-1 day (OS updates frozen, images pre-pulled and digests verified, `make demo-reset`, seeded accounts verified, one rehearsal); T-30 min (`tailscale status` shows the laptop and FED-D online, `demo-sleep.sh on`, the charger, FED-D reachable, `bootstrap.sh --check` green, `kctl nodes` FED-D `READY`, a browser window logged in per role, terminal font size); T-0 (reset once more); after (`demo-sleep.sh off`). `hack/preflight.sh` automating the checkable items. A known-issues sheet with workarounds collected during P4 and P5.
 - **Acceptance criteria:** `hack/preflight.sh` exits 0 on rehearsal day; every manual item names an owner.
 - **Depends on:** P6.1
 - **Decisions required:** —

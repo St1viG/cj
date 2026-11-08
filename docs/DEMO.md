@@ -2,18 +2,17 @@
 
 This is the script for the Kondukter showcase: what to run, what the audience should see, and what to say. Anyone on the team should be able to run the demo from this file alone. The day before and the last 30 minutes are in [`DEMO_CHECKLIST.md`](DEMO_CHECKLIST.md).
 
-> **Status (2026-11-08).** Written on the development Mac against mock-driver agents. The real fleet is not enrolled yet (P4.4), and the GPU image waits for P1.6, so no step here has been timed on the hardware. A time marked *measured* comes from spike S3 or a mock run; every other time is the roadmap's limit. The stage view (`/stage`, P5.5) is merged and was checked against failure drill 1 with mock agents, but not on a projector. P6.3's rehearsals fill in the real times.
+> **Status (2026-11-08).** The Macs are out of scope ([ADR-0026](adr/0026-macs-out-of-scope.md)), so the demo is one Fedora box that runs both the control plane and the GPU node, and the presenter's laptop as its client. This sheet was written for five machines and reworked for that box. The parts that can be tested without the box were run against mock-driver agents on a development Mac; nothing here has been timed on FED-D, except that the agent restart in drill 1 was timed there by hand (see [Results so far](#results-so-far)). A time marked *measured* says where it was measured; every other time is the roadmap's limit. The browser parts need the web app built into the binary on FED-D, which it is not yet (`make web` needs pnpm there). P6.3's rehearsals fill in the real times.
 
 ## The cast
 
 | Machine | Role |
 |---|---|
-| **MAC-P** | The presenter's laptop and the projector. Runs the control plane (docker compose), `kctl` and the browser. |
-| **MAC-A**, **MAC-B** | arm64 CPU nodes: Lima `vz`, one 2 GiB VM each. |
-| **FED-D** | The GPU node: libvirt/QEMU, with the GTX 1060 passed through by VFIO. |
-| **FED-L** | A second GPU node if spike S2b passed, otherwise a CPU-only amd64 node. |
+| **The laptop** | The presenter's, and the projector. The browser and `kctl`, over the tailnet. It runs no node and no control plane. |
+| **FED-D** | The box. The control plane (`kondukter` as a systemd service, Postgres in docker, [`deploy/demo/`](../deploy/demo/README.md)) and the GPU node: libvirt/QEMU, with the GTX 1060 passed through by VFIO. |
+| **FED-L** | Not part of the plan unless it is online and spike S2b (P1.3) has run. Its agent would need the gateway on the tailnet, and the gateway listens on loopback today. |
 
-All five are on one tailnet. The web app and the API are at `http://<MAC-P's MagicDNS name>:8080`; `hack/demo.sh env` prints every address.
+The web app and the API are at `http://<FED-D's MagicDNS name>:8080` (`fedora` from the presenter's laptop). The gateway and the image server listen on loopback only.
 
 | Account | Role | Lands on |
 |---|---|---|
@@ -21,7 +20,7 @@ All five are on one tailnet. The web app and the API are at `http://<MAC-P's Mag
 | `partner@demo.local` | partner, owns site `demo` | `/partner/nodes` |
 | `operator@demo.local` | operator | `/admin/nodes` |
 
-The password is `SEED_PASSWORD` in `.env`.
+The password is `SEED_PASSWORD` in `/etc/kondukter-demo/demo.env` on FED-D, which only root can read. `deploy/demo/up.sh` seeds the accounts with `demo-password` when that variable is unset. The Fleet role gives it to the Presenter.
 
 ## Screen layout
 
@@ -30,11 +29,11 @@ The password is `SEED_PASSWORD` in `.env`.
   - Partner at `/partner/nodes`.
   - Operator at `/admin/nodes`, plus a tab with `/stage?demo=1` for the drills.
 - **Terminal:** two panes, with a font the back row can read. Pane 1 is the customer and pane 2 the partner.
-- `kctl` keeps one server and API key per config file. `make demo-up` prints each account's key once, when it creates the account, so save them then. Log in once per role:
+- `kctl` keeps one server and API key per config file. `deploy/demo/up.sh` prints each account's key once, when it creates the account, and saves them to `/var/lib/kondukter-demo/accounts.txt` (root only). Log in once per role, from the laptop:
 
   ```sh
-  kctl --config ~/.config/kctl/customer.yaml login --server http://<name>:8080 --api-key <customer key>
-  kctl --config ~/.config/kctl/partner.yaml  login --server http://<name>:8080 --api-key <partner key>
+  kctl --config ~/.config/kctl/customer.yaml login --server http://fedora:8080 --api-key <customer key>
+  kctl --config ~/.config/kctl/partner.yaml  login --server http://fedora:8080 --api-key <partner key>
   ```
 
   Then, in each pane:
@@ -44,35 +43,31 @@ The password is `SEED_PASSWORD` in `.env`.
   export KCTL_CONFIG=~/.config/kctl/partner.yaml    # pane 2
   ```
 
-- The customer account needs an SSH key: add the presenter's public key at `/app/keys` once. `make demo-reset` keeps accounts and their keys.
+- The customer account needs an SSH key: add the presenter's public key at `/app/keys` once. Resetting keeps accounts and their keys.
 
 ## Running order
 
 | Part | What | Target |
 |---|---|---|
-| — | Before the audience: `make demo-reset`, then `kctl nodes` (pane 2) shows four `READY` nodes | — |
+| — | Before the audience: `sudo deploy/demo/reset.sh` on FED-D, then `kctl nodes` (pane 2) shows FED-D `READY` with 0 instances | — |
 | 1 | [The story](#the-story) | 2 min |
 | 2 | [Happy path in the browser](#happy-path-in-the-browser), with the GPU moment | 8 min |
 | 3 | [The same from kctl](#the-same-from-kctl) | 3 min |
 | 4 | [Partner and operator views](#partner-and-operator-views) | 4 min |
 | 5 | [Failure drills](#failure-drills) | 8 min |
-| — | Questions, then `make demo-reset` | — |
+| — | Questions, then reset | — |
 
 The targets add up to about 25 minutes. They are a plan, not measurements: P6.3 records the real times.
 
 ## The story
 
-**Show:** the operator's `/admin/nodes`: four `READY` nodes at site `demo`.
-
-- MAC-A and MAC-B: arm64, driver `lima`.
-- FED-D: amd64, driver `libvirt`, one GeForce GTX 1060 6GB.
-- FED-L: amd64, driver `libvirt`, with its RTX or without a GPU.
+**Show:** the operator's `/admin/nodes`: FED-D `READY` at site `demo`, driver `libvirt`, amd64, one GeForce GTX 1060 6GB.
 
 **Say:**
 
 - "Companies, universities and datacenters own capacity, GPUs included, that sits idle much of the time. Kondukter resells a fixed share of it as on-demand VMs. The partner earns on hardware it has already paid for, and the customer pays less than at a big cloud."
 - "Every machine runs a small agent that dials out to the control plane. No node needs an open port or a public address."
-- "Tonight's datacenter is these four machines: two Macs, a Fedora desktop with a GTX 1060, and a Fedora laptop. The control plane runs on this laptop."
+- "Tonight's datacenter is one Fedora desktop with a GTX 1060. The control plane runs on the same machine, to keep the demo to one box. In production they are separate: the agent connects outbound."
 
 ## Happy path in the browser
 
@@ -105,7 +100,7 @@ Customer window. Times are from the click on Create.
    llama-completion -m /opt/models/*.gguf -ngl 99 -n 48 -p "In one sentence, what is a GPU?"
    ```
 
-   On an image with only `llama-cli`, run `llama-cli -no-cnv` with the same flags. Point at `offloaded N/N layers to GPU` and at the tokens per second. P1.6 fixes the image's binary and model; this is the command `hack/demo-happy.sh` checks.
+   On an image with only `llama-cli`, run `llama-cli -no-cnv` with the same flags. Point at `offloaded N/N layers to GPU` and at the tokens per second. Spike S2a *measured* 143 tokens/s generating with a 0.5B model on this card, and `nvidia-smi` answering 11 s after `virsh start` with a warm overlay. This is the command `hack/demo-happy.sh` checks.
 
    **Say:** "That is NVIDIA's own driver, inside a VM, on the real card. The whole model is on the GPU."
 6. Back in the browser, **`/app/instances`** shows the running minutes and the estimated cost; they move on the 5 s refresh. The minutes count from `running`, rounded up to a whole minute. The cost is the minutes times the hourly price, rounded up to a cent: at €0.40/h, 2 minutes is €0.02. `/app/usage` has the totals.
@@ -118,17 +113,17 @@ Customer window. Times are from the click on Create.
 
 ## The same from kctl
 
-Pane 1, as the customer. This time the instance is a Mac VM. Keep it running at the end: part 4 force-terminates it.
+Pane 1, as the customer. This time the instance is a plain CPU VM. Keep it running at the end: part 4 force-terminates it.
 
 ```sh
 kctl offers
-kctl create --offer cpu-2x2 --image ubuntu-cpu --arch arm64 --name mac-demo --wait
+kctl create --offer cpu-2x2 --image ubuntu-cpu --arch amd64 --name cpu-demo --wait
 ```
 
-The output follows the phases to `RUNNING`. The limit is 90 s; spike S3 *measured* 21 s from create to SSH with a cached image on an 8 GB Mac, outside the agent. `--ssh-key` defaults to `~/.ssh/id_*.pub`.
+The output follows the phases to `RUNNING`. The limit is 120 s. `--ssh-key` defaults to `~/.ssh/id_*.pub`.
 
 ```sh
-kctl ssh --exec <id> -- uname -m      # prints aarch64
+kctl ssh --exec <id> -- uname -m      # prints x86_64
 kctl get <id>                         # phase, node, ssh command, running minutes, estimated cost
 kctl list
 ```
@@ -136,10 +131,10 @@ kctl list
 Pane 2, as the partner:
 
 ```sh
-kctl nodes                            # MAC-A or MAC-B has one active instance
+kctl nodes                            # FED-D has one active instance
 ```
 
-**Say:** "The CLI uses the same API as the browser. Here it is an arm64 VM on a Mac, running on Apple's Virtualization framework through Lima."
+**Say:** "The CLI uses the same API as the browser. Here it is a plain CPU VM next to the GPU one, on the same machine."
 
 ## Partner and operator views
 
@@ -153,12 +148,12 @@ kctl nodes                            # MAC-A or MAC-B has one active instance
 
   **Say:** "Adding a machine is one command on the machine."
 
-**Operator window:**
+**Operator window.** Do these in this order, because FED-D is the only node and a quarantined node ignores its instances' reports (see [Do not](#do-not)):
 
 - **`/admin/nodes`:** every partner's nodes, with the generation lag. It is 0 when every agent has confirmed its desired state.
-- **Quarantine** a node with no instances, such as FED-L, with the reason "demo". The row reads `quarantined (demo)`. In pane 2, `kctl nodes` shows `QUARANTINED`. Then click **Unquarantine**.
-- **`/admin/instances`:** find `mac-demo`. Click **Force terminate** with the reason "demo". In pane 1, `kctl get <id>` shows `TERMINATED`, and its events carry the reason `force-terminated by operator@demo.local: demo`.
-- **`/admin/audit`:** the top rows are the force terminate, the unquarantine and the quarantine. Each has the operator, the target and the reason, and the payload opens to its JSON.
+- **`/admin/instances`:** find `cpu-demo`. Click **Force terminate** with the reason "demo". In pane 1, `kctl get <id>` shows `TERMINATED`, and its events carry the reason `force-terminated by operator@demo.local: demo`.
+- **Quarantine** FED-D, now that it has no instances, with the reason "demo". The row reads `quarantined (demo)`. In pane 2, `kctl nodes` shows `QUARANTINED`. Then click **Unquarantine**.
+- **`/admin/audit`:** the top rows are the unquarantine, the quarantine and the force terminate. Each has the operator, the target and the reason, and the payload opens to its JSON.
 
 **Say:** "Kondukter's own staff can take a machine out of rotation or stop a VM, and every such action is in the audit log."
 
@@ -170,9 +165,17 @@ The resilience part of the demo has three drills. [`hack/demo-failure.sh`](../ha
 - it watches the API, printing a timestamped line for every change;
 - it checks the roadmap's acceptance criteria and exits non-zero if one fails.
 
-Run it on MAC-P from the repo root, after `make demo-up`, with the fleet `READY`. Run `make demo-reset` afterwards.
+Run it **on FED-D**, from the repository checkout there, as root: drills 1 and 2 stop and kill services on the box. Set the box's commands once per shell:
 
-The script signs in as the seeded demo accounts, so it needs no API key. For the audience, put the operator's `/stage?demo=1` or the customer's instance page next to the script's terminal.
+```sh
+export DEMO_ENV_FILE=/etc/kondukter-demo/demo.env       # the seeded password
+export KILL_CMD='sudo kill -9 $(pidof kondukter-agent)'
+export DRILL_CP_STOP='systemctl stop kondukter'
+export DRILL_CP_START='systemctl start kondukter'
+export DRILL_PSQL='docker exec -i kondukter-postgres-1 psql -q -X -v ON_ERROR_STOP=1 -U kondukter -d kondukter'
+```
+
+The script signs in as the seeded demo accounts, so it needs no API key. For the audience, put the operator's `/stage?demo=1` or the customer's instance page next to the script's terminal. Reset afterwards. *These overrides were tested with commands that stand in for systemd and docker exec against a mock stack, not on FED-D.*
 
 ### Drill 1: kill the agent under a GPU VM
 
@@ -184,13 +187,13 @@ The script signs in as the seeded demo accounts, so it needs no API key. For the
 
 **Run:** `hack/demo-failure.sh agent-kill <instance>`
 
-The script opens its own SSH session to the VM, which prints a line every second, and then runs:
+The script opens its own SSH session to the VM, which prints a line every second, and then runs `KILL_CMD`, here:
 
 ```sh
-ssh fed-d 'sudo kill -9 $(pidof kondukter-agent)'
+sudo kill -9 $(pidof kondukter-agent)
 ```
 
-To type the kill yourself on FED-D's screen, set `KILL_CMD=manual`. The script then waits for you.
+To type the kill yourself, set `KILL_CMD=manual`. The script then waits for you.
 
 | After the kill | What happens |
 |---|---|
@@ -211,15 +214,15 @@ To type the kill yourself on FED-D's screen, set `KILL_CMD=manual`. The script t
 
 ### Drill 2: the control plane goes away
 
-**Setup:** instances `RUNNING`, ideally on every node.
+**Setup:** an instance `RUNNING`.
 
 **Run:** `hack/demo-failure.sh cp-outage`. The outage lasts 120 s; `cp-outage 60` gives a shorter one.
 
-1. `docker compose stop kondukter`: the API, the web app and the agent gateway are down.
+1. `DRILL_CP_STOP`: the API, the web app and the agent gateway are down.
 2. After 10 s the script runs `ssh … true` against every VM, and each must succeed.
-3. Meanwhile, the agents keep metering into their durable outbox and retry the gateway. The retry delay is jittered, up to 60 s.
-4. `docker compose up --no-recreate --wait kondukter`: healthy in about 4 s.
-5. Within a minute, the agents reconnect and send the buffered usage.
+3. Meanwhile, the agent keeps metering into its durable outbox and retries the gateway. The retry delay is jittered, up to 60 s.
+4. `DRILL_CP_START`, then the script waits for `/healthz`.
+5. Within a minute, the agent reconnects and sends the buffered usage.
 6. For 95 s after a start, the watchdog marks no node `UNREACHABLE`: that is the agents' 60 s maximum backoff plus the 35 s heartbeat grace. A node that has not reconnected yet is therefore not mistaken for a dead one.
 7. The script watches for 120 s (`SETTLE`), past that grace.
 
@@ -230,169 +233,146 @@ To type the kill yourself on FED-D's screen, set `KILL_CMD=manual`. The script t
 - No `instance_events` since the stop.
 - Every `RUNNING` instance's metered usage has no gaps and covers the outage. Its sum matches the wall clock from `running_at` to the last reported minute within 60 s.
 
-The control plane sees only its own records. To show on a node that there is still exactly one VM per instance:
-
-- Fedora: `sudo virsh list --all | grep kdk-`
-- Mac: `limactl list | grep kdk-`
+The control plane sees only its own records. To show on the node that there is still exactly one VM per instance: `sudo virsh list --all | grep kdk-`.
 
 **Say:** "Two minutes without a control plane, and nothing a customer would notice. Billing didn't lose a minute either."
 
-### Drill 3: drain a Mac
+### Drill 3: drain the node
 
-**Run:** `hack/demo-failure.sh drain <mac-node>`
+With one node there is nowhere else to place work, so this drill shows what a drain does: it keeps new work off the node and leaves existing VMs alone.
+
+**Run:** `hack/demo-failure.sh drain <node>`, where `<node>` is FED-D's hostname from `kctl nodes`.
 
 1. The partner drains the node.
-2. The customer creates a `cpu-2x2` instance with `ubuntu-cpu` of the node's architecture.
-3. The instance must reach `RUNNING` on another `READY` node of that architecture: the other Mac.
-4. The script terminates the instance and undrains the node.
+2. The customer creates a `cpu-2x2` instance with `ubuntu-cpu`.
+3. The instance must stay `PENDING` for `DRILL_HOLD` seconds (15): no other node can take it.
+4. The partner undrains the node. The instance must go to `RUNNING` on it.
+5. The script terminates the instance.
 
-`KEEP=1` keeps the instance and the drain for the rest of the demo; `make demo-reset` undoes both.
+(With a second `READY` node of the same architecture, the drill instead expects the instance `RUNNING` on that node while the first is drained.)
 
 By hand, it is the same sequence:
 
 ```sh
-kctl drain mac-a --reason maintenance                                  # as the partner
-kctl create --offer cpu-2x2 --image ubuntu-cpu --arch arm64 --wait     # as the customer
-kctl undrain mac-a                                                     # as the partner
+kctl drain <node> --reason maintenance                 # as the partner
+kctl create --offer cpu-2x2 --image ubuntu-cpu --arch amd64   # as the customer: stays pending
+kctl undrain <node>                                    # as the partner: it starts
 ```
 
-**Say:** "The partner takes a machine out for maintenance. Existing VMs stay, and new ones go elsewhere."
+**Say:** "The partner takes a machine out for maintenance. Existing VMs stay, and new ones wait or go elsewhere."
 
 ### Overrides
 
 | Variable | Meaning |
 |---|---|
-| `KILL_CMD` | Drill 1: the kill command. `$host` is the node's hostname. `manual` waits for you to type it. |
+| `KILL_CMD` | Drill 1: the kill command. `$host` is the node's hostname. `manual` waits for you to type it. Default: `ssh "$host" 'sudo kill -9 …'`. |
+| `DRILL_CP_STOP`, `DRILL_CP_START` | Drill 2: the commands that stop and start the control plane. Default: the compose stack's. |
+| `DRILL_PSQL` | How to run `psql`, for the event checks. Default: in the compose stack's Postgres container. |
+| `DRILL_HOLD` | Drill 3 on a single node: seconds the instance must stay `PENDING`. Default 15. |
 | `DRILL_SSH` | `0` skips the SSH checks. They are skipped by default on mock-driver nodes, which have no VM. |
 | `DRILL_SSH_OPTS` | Extra `ssh` options, e.g. `-i ~/.ssh/demo`. |
 | `DRILL_SSH_KEY` | Drill 3: public key for the new instance. Default: `~/.ssh/id_ed25519.pub`, else a throwaway key. |
 | `DRILL_OFFER`, `DRILL_IMAGE` | Drill 3: shape and image names. Defaults: `cpu-2x2`, `ubuntu-cpu`. |
 | `SETTLE` | Drill 2: seconds to watch after the restart. Default 120. |
 | `DRILL_TIMEOUT` | Seconds to wait for each expected change. Default 300. |
-| `DEMO_ENV_FILE`, `COMPOSE_PROJECT_NAME`, `KONDUKTER_API_PORT` | As for `hack/demo.sh`. |
+| `DEMO_ENV_FILE`, `DEMO_API`, `SEED_PASSWORD`, `COMPOSE_PROJECT_NAME`, `KONDUKTER_API_PORT` | As for `hack/demo-lib.sh`. |
 
 ### Results so far
 
-**2026-11-08, dev Mac, two mock-driver agents** (mock-a and mock-b, arm64), against a separate compose project. A supervisor loop stood in for systemd: it restarted a killed agent after 60 s.
+**2026-11-08, dev Mac, mock-driver agents**, against a separate compose project. A supervisor loop stood in for systemd: it restarted a killed agent after 60 s.
 
 | Drill | Result |
 |---|---|
 | 1 | Pass. `UNREACHABLE` at 37 s, `RUNNING` again at 61 s; events exactly `running → unreachable → running`. No SSH check, since the mock has no VM. |
-| 2 | Pass, with a 120 s outage. Healthy 4 s after the start and steady through the 120 s watch. No events. Usage had no gaps and was off by 0–1 s. |
+| 2 | Pass, with a 120 s outage and again with a 15 s one through `DRILL_CP_STOP`, `DRILL_CP_START` and `DRILL_PSQL`. Healthy 2–4 s after the start and steady through the 120 s watch. No events. Usage had no gaps and was off by 0–1 s. |
 | 2, negative | Fails as it should. One agent was stopped for good, and its node turned `UNREACHABLE` 99 s after the restart, once the 95 s grace ran out. |
-| 3 | Pass. `RUNNING` on mock-b 4 s after the create, then terminated and undrained. |
+| 3, two nodes | Pass. `RUNNING` on the other node 2–4 s after the create, then terminated and undrained. |
+| 3, one node | Pass. The instance stayed `PENDING` while the only amd64 node was drained, and was `RUNNING` on it 2 s after the undrain. |
 
-**Still to do:** two passes of each drill on the real fleet. That is FED-D with a GPU VM and a live SSH session for drill 1, and both Macs for drill 3.
+**2026-11-08, FED-D, by hand, not by the script** (recorded in commit `00162c0`): `kill -9` of the agent gave `UNREACHABLE` after 34 s, the systemd restart came at 60 s, and the node was `READY` again 4 s later.
+
+**Still to do:** two passes of each drill by the script on FED-D, with a GPU VM and a live SSH session for drill 1.
 
 ## Between runs
 
 ```sh
-make demo-reset
+sudo deploy/demo/reset.sh        # on FED-D
 ```
 
-It undoes quarantines and drains, terminates every instance and waits for the VMs to go, then empties the instance tables. Nodes, accounts, SSH keys and the catalog stay. It takes up to 180 s and exits non-zero if an instance does not terminate or a node is not `READY` at the end. The details are in [`deploy/compose/README.md`](../deploy/compose/README.md#demo).
+It terminates the demo customer's instances, waits until none is left, and counts the libvirt domains that remain. Nodes, accounts, SSH keys and the catalog stay. **It does not undo a drain or a quarantine**, and it does not empty the usage records: undo those with `kctl undrain` and the operator's **Unquarantine**. (The compose stack's `hack/demo.sh reset` does both; it is for the stack on a development machine.)
 
-Then run `hack/preflight.sh`, or at least check `kctl nodes` in pane 2: four `READY` nodes, each with 0 active instances.
+Then, from the laptop, run `DEMO_API=http://fedora:8080 SEED_PASSWORD=… hack/preflight.sh`, or at least check `kctl nodes` in pane 2: FED-D `READY` with 0 active instances.
 
 ## Fallbacks
 
-**FED-L is CPU-only.** This is the plan if spike S2b said no-go. Nothing in this sheet changes: the GPU offer has one node, FED-D. In the story, call FED-L "a CPU node".
-
-**FED-D is unavailable.** Run a simulated GPU node on MAC-P with `kdk-sim` and the partner's key:
+**FED-D is unavailable.** The box is also the control plane, so there is no control plane either. Run the whole demo on the laptop with simulated nodes, and say so on screen: "This is a simulation; the real machine is not with us today."
 
 ```sh
-go run ./cmd/kdk-sim --api http://<name>:8080 --api-key <partner key> \
-  --cpu-amd64 0 --cpu-arm64 0 --gpu 1 --dir ~/.kdk-sim-demo
+make demo-up                        # the compose stack on the laptop; prints the keys once
+go run ./cmd/kdk-sim --api http://localhost:8080 --api-key <partner key> \
+  --cpu-amd64 1 --cpu-arm64 0 --gpu 1 --dir ~/.kdk-sim-demo
 ```
 
-It enrolls `sim-gpu-01` at site `demo`, with the `mock` driver and one simulated GTX 1060. **Say so on screen:** "This node is simulated; FED-D is not with us today." The GPU instance goes through every phase, and usage, cost and capacity behave the same. There is no VM, so skip step 5, the GPU moment.
+The simulated nodes have the `mock` driver, so every instance goes through every phase, and usage, cost and capacity behave the same, but there is no VM. Skip the SSH and `nvidia-smi` steps, and the failure drills' SSH checks. The GPU offer still needs the `ubuntu-gpu-pascal` image in the catalog; without it, skip the GPU instance. To check the fallback with the script: `HAPPY_CPU_DRIVER=mock HAPPY_GPU_DRIVER=mock hack/demo-happy.sh`.
 
-- The GPU offer still needs the `ubuntu-gpu-pascal` image in the catalog. Without it, skip the GPU instance.
-- With FED-D `UNREACHABLE`, `make demo-reset` exits non-zero at the end. That is expected; check that the other nodes are `READY`.
-- To check the fallback with the script: `HAPPY_GPU_DRIVER=mock hack/demo-happy.sh`.
+**Tailscale is down.** Put the laptop and FED-D on one LAN. The control plane and the agent talk over loopback on the box, so only the laptop's access and the guests' SSH address change. *Not rehearsed yet: P6.3 tries it once.*
 
-**Tailscale is down.** Move everything to one LAN. *Not rehearsed yet: P6.3 tries it once.*
+1. Use `http://<FED-D's LAN IP>:8080` in the browser windows and for `kctl` (`KCTL_SERVER`).
+2. In `/etc/kondukter-agent/config.yaml` on FED-D, set `advertise_address: <FED-D's LAN IP>`, which is the address in the `ssh` commands, and run `sudo systemctl restart kondukter-agent`.
+3. Check `kctl nodes`: FED-D `READY`. Undo step 2 when Tailscale is back.
 
-1. On MAC-P, set `KONDUKTER_HOST=<MAC-P's LAN IP>` in `.env` and run `make demo-up`. The control plane restarts with a gateway certificate for that IP. The CA and the nodes' identities stay.
-2. On each node, set two keys in the agent config:
-   - `gateway: <MAC-P's LAN IP>:8443`;
-   - `advertise_address: <the node's LAN IP>`, which is the address in the `ssh` commands.
-3. Restart each agent:
-   - Fedora: `sudo systemctl restart kondukter-agent`.
-   - Mac: `sudo launchctl kickstart -k system/io.kondukter.agent`.
-4. The web app is now at `http://<MAC-P's LAN IP>:8080`, so sign in again in each window. For `kctl`, set `KCTL_SERVER` to the same URL in both panes.
-5. Check `kctl nodes`: four `READY` nodes.
-6. To go back, undo steps 1–4 and run `make demo-up` again.
-
-The config files are listed in [`deploy/nodes/README.md`](../deploy/nodes/README.md#installing-the-agent).
+The firewall on FED-D may block port 8080 on the LAN zone; nobody has checked.
 
 ## Do not
 
-- **Let any machine sleep, or close a node's lid.** `hack/demo-sleep.sh on` keeps them awake (see the checklist).
-- **Switch Wi-Fi networks or turn on a VPN** on any machine during the demo.
-- **Install OS updates** after T-1 day, on any of the five machines.
-- **Run `make demo-down V=1`.** It deletes the database volume, with the CA in it, so every node would have to enroll again. Never replace `KONDUKTER_MASTER_KEY` in `.env` either: it seals that CA.
-- **Quarantine a node with instances on it** during the demo. The control plane ignores a quarantined node's reports, so its instances cannot confirm a terminate until it is unquarantined.
+- **Let FED-D or the laptop sleep.** FED-D's suspend and hibernate targets are masked (checked by `bootstrap.sh --check`); on the laptop run `hack/demo-sleep.sh on`.
+- **Switch Wi-Fi networks or turn on a VPN** on the laptop during the demo.
+- **Install OS updates** after T-1 day, on FED-D or the laptop.
+- **Delete the Postgres volume or change `KONDUKTER_MASTER_KEY`** in `/etc/kondukter-demo/demo.env`. The key encrypts the node CA in the database, so the agent would have to enroll again.
+- **Quarantine FED-D while it has instances.** The control plane ignores a quarantined node's reports, so its instances cannot confirm a terminate until it is unquarantined.
 - **Use plain `kctl watch` for drill 1.** It stops at `RUNNING`, so it exits at once. Use `kctl watch --until-terminal <id>`.
-- **Run `docker compose down`** for drill 2. The script stops and starts the `kondukter` container; `down` would remove it.
+- **Run `deploy/demo/down.sh --all`** in the middle of a run. It also stops Postgres. Drill 2 stops only the `kondukter` service.
 
 ## The happy-path script
 
-[`hack/demo-happy.sh`](../hack/demo-happy.sh) runs the main storyline with `kctl` and checks each step. Run it on MAC-P from the repo root, after `make demo-up` and `make demo-reset`, with the fleet `READY`. `hack/demo-happy.sh 3` does three runs in a row, which is the roadmap's acceptance test.
+[`hack/demo-happy.sh`](../hack/demo-happy.sh) runs the main storyline with `kctl` and checks each step. Run it after a reset, with FED-D `READY`. `hack/demo-happy.sh 3` does three runs in a row, which is the roadmap's acceptance test.
+
+Run it **on FED-D** as root, or **from the laptop** with the control plane's address and the seeded password:
+
+```sh
+DEMO_API=http://fedora:8080 SEED_PASSWORD=… hack/demo-happy.sh
+```
+
+From the laptop, step 5 (nothing left on the node) runs `sudo virsh …` over `ssh fedora`, which needs passwordless sudo there; without it set `HAPPY_NODE_CHECKS=0`.
 
 The script signs in as the seeded customer and partner. It creates a throwaway API key for each, so `kctl` runs exactly as it would for the presenter, and revokes both on exit. `kctl ssh` uses a `known_hosts` file of the run's own, since a new instance can get an old one's host port.
 
 Each run does this:
 
-1. **Mac:** creates `cpu-2x2` with `ubuntu-cpu` arm64. It must reach `RUNNING` within 90 s on a `lima` node, and `kctl ssh --exec ID -- uname -m` must print `aarch64`.
-2. **GPU:** at the same time, creates `gpu-gtx1060-1x` with `ubuntu-gpu-pascal`. It must reach `RUNNING` within 120 s on a `libvirt` node, and `kctl nodes` must show that node's GPU allocated. Inside the VM:
-   - `nvidia-smi` must name the offer's GPU model;
-   - a short llama.cpp prompt with `-ngl 99` must report `offloaded N/N layers to GPU`. The script prints the eval-time lines.
-3. **Usage:** `kctl get` on both, until the running minutes grow. The estimated cost must equal ceil(minutes × price per hour / 60) in cents.
-4. **Terminate:** terminates both. Each must reach `TERMINATED`, and `kctl nodes`, as the partner, must show every node's free capacity, instance count and GPUs as before the run.
-5. **Node checks:** over SSH to each node, nothing of either instance may be left.
-   - Fedora: `virsh list --all`, `/var/lib/kondukter-agent/instances` and `nft list chain inet kdk forwards`.
-   - Mac: `limactl list` as `_kondukter`.
-
-A failed check prints `FAIL` and the run carries on, so one run reports every failure. The script then exits non-zero. On exit it terminates anything a failed run left running, so the next run starts from the same fleet.
-
-Each run ends with a table of the times from create to `RUNNING`, from `RUNNING` to the first SSH login, and for the terminate. The same rows are appended to `.demo/happy-timings.tsv`.
-
-**The GPU image contract.** By default the llama.cpp step runs the first `/opt/models/*.gguf` in the VM with `llama-completion`, or else `llama-cli -no-cnv`, from `PATH`. The GPU image (P1.6) must provide both, or `HAPPY_LLAMA` must give the command.
+1. Creates a `cpu-2x2` amd64 instance and checks that it reaches `RUNNING` within 120 s on a libvirt node, and that `uname -m` prints `x86_64` over SSH.
+2. Creates the GPU instance at the same time and checks `RUNNING` within 120 s, `nvidia-smi` showing the offer's GPU, and a llama.cpp prompt with every layer offloaded.
+3. Watches `kctl get` until the running minutes grow and the estimated cost follows them.
+4. Terminates both and checks the node's capacity is back.
+5. Checks over SSH that no libvirt domain, instance directory or nft rule of either is left.
 
 ### Overrides
 
 | Variable | Meaning |
 |---|---|
-| `HAPPY_GPU` | `0` skips the GPU instance. |
-| `HAPPY_MAC_OFFER`, `HAPPY_MAC_IMAGE`, `HAPPY_MAC_ARCH` | The Mac instance. Defaults: `cpu-2x2`, `ubuntu-cpu`, `arm64`. |
-| `HAPPY_GPU_OFFER`, `HAPPY_GPU_IMAGE` | The GPU instance. Defaults: `gpu-gtx1060-1x`, `ubuntu-gpu-pascal`. |
-| `HAPPY_MAC_DRIVER`, `HAPPY_GPU_DRIVER` | The driver each must land on. Defaults: `lima`, `libvirt`. |
-| `HAPPY_MAC_LIMIT`, `HAPPY_GPU_LIMIT` | Seconds allowed from create to `RUNNING`. Defaults: 90, 120. |
-| `HAPPY_SSH` | `0` skips the checks inside the VMs. Mock-driver nodes, which have no VM, skip them unless it is `1`. |
-| `HAPPY_NODE_CHECKS` | `0` skips step 5. Mock-driver nodes always skip it. |
-| `HAPPY_NODE_SSH` | How to reach a node by its hostname for step 5. Default: `ssh -o BatchMode=yes -o ConnectTimeout=10`. |
-| `HAPPY_SSH_KEY` | Public key for the instances, with its private half beside it. Default: `~/.ssh/id_ed25519.pub`, then the ECDSA and RSA keys, else a throwaway key. |
+| `HAPPY_GPU=0` | Skip the GPU instance. |
+| `HAPPY_CPU_OFFER`, `HAPPY_CPU_IMAGE`, `HAPPY_CPU_ARCH` | The CPU instance. Defaults `cpu-2x2`, `ubuntu-cpu`, `amd64`. `arm64` expects `aarch64`, for a mock or Lima node. |
+| `HAPPY_GPU_OFFER`, `HAPPY_GPU_IMAGE` | The GPU instance. Defaults `gpu-gtx1060-1x`, `ubuntu-gpu-pascal`. |
+| `HAPPY_CPU_DRIVER`, `HAPPY_GPU_DRIVER` | The driver each must land on. Default `libvirt`. |
+| `HAPPY_CPU_LIMIT`, `HAPPY_GPU_LIMIT` | Seconds allowed from create to `RUNNING`. Default 120 each. |
+| `HAPPY_SSH=0` | Skip the checks inside the VMs. Mock-driver nodes skip them unless `HAPPY_SSH=1`. |
+| `HAPPY_NODE_CHECKS=0` | Skip step 5. Mock-driver nodes always skip it. |
+| `HAPPY_NODE_SSH` | How to reach a node by hostname for step 5. Default `ssh -o BatchMode=yes -o ConnectTimeout=10`. |
+| `HAPPY_SSH_KEY` | Public key for the instances, with its private half beside it. Default `~/.ssh/id_ed25519.pub`, …; else a throwaway key. |
 | `HAPPY_LLAMA` | The prompt command run in the GPU VM. |
-| `HAPPY_GROW` | Seconds to wait for the minutes to grow. Default 150. |
-| `HAPPY_TIMEOUT` | Seconds to wait for any other change. Default 300. |
-| `HAPPY_LOG` | The timing log. Default `.demo/happy-timings.tsv`. |
-| `KCTL` | The `kctl` binary. Default: `bin/kctl`, then `PATH`, else one built into a temporary directory. |
-| `DEMO_ENV_FILE`, `COMPOSE_PROJECT_NAME`, `KONDUKTER_API_PORT` | As for `hack/demo.sh`. |
+| `HAPPY_GROW`, `HAPPY_TIMEOUT` | Seconds to wait for the minutes to grow (150), and for any other change (300). |
+| `HAPPY_LOG` | Timing log. Default `.demo/happy-timings.tsv`. |
+| `KCTL` | The `kctl` binary. Default `bin/kctl`, then `PATH`, else built into a temporary directory. |
 
 ### Results so far
 
-**2026-11-08, dev Mac, three mock-driver agents**, against a separate compose project:
-
-- mock-a and mock-b, arm64;
-- mock-g, amd64, with a simulated GTX 1060 6GB.
-
-The database had a placeholder `ubuntu-gpu-pascal` row, since the real image waits for P1.6. The mocks have no VM, so the checks inside the VMs and on the nodes were skipped.
-
-| Run | Result |
-|---|---|
-| `hack/demo-happy.sh 3` with `HAPPY_MAC_DRIVER=mock HAPPY_GPU_DRIVER=mock` | Pass, three runs in a row. The Mac instance was `RUNNING` in 3–4 s and the GPU one in 5–6 s, with the GPU allocated. The minutes grew from 0–1 to 2 within about a minute, and the cost followed the formula: 0.01 EUR and 0.02 EUR. Both were `TERMINATED` within 1 s, and the capacity came back. |
-| `HAPPY_GPU=0` | Pass, with the Mac instance alone. |
-| The default `lima` driver against the mocks | Fails as it should, on the placement check, and still terminates both instances. |
-
-**Still to do:** three runs on the real fleet after `make demo-reset`, which waits for P4.4 and P1.6. They check the 90 s and 120 s limits with cached images, `aarch64` from the Macs, and `nvidia-smi` and llama.cpp on FED-D. They also run the node checks, and the GPU must provision on the third run.
+**2026-11-08, dev Mac, mock agents:** three runs in a row passed with the old arm64 CPU instance (3–4 s to running for the CPU instance, 5–6 s for the GPU one). With the new defaults one run passed with an amd64 CPU instance on the amd64 mock node, and one from a shell with no env file and no compose, through `DEMO_API` and `SEED_PASSWORD`. A negative expectation (a `lima` driver on a mock node) fails as it should while still terminating both instances. Nothing has run on FED-D.
