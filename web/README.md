@@ -28,4 +28,10 @@ The generated client is imported from `gen/ts` through the `@gen/*` alias. `@buf
 
 ## Filling in a page (P5.2 to P5.5)
 
-Write the page component, then set `element` on its entry in `src/routes.ts`; until then the page renders a placeholder naming its RPCs. Keep `docs/WEB_PAGES.md` in step: `routes.test.ts` fails when a route or its RPC list differs between the two.
+Write the page component under `src/pages/<area>/` and add it to that area's map (`pages/customer/index.tsx` is the example), which `pages/registry.tsx` merges; until a route has an entry it renders a placeholder naming its RPCs. Keep `docs/WEB_PAGES.md` in step: `routes.test.ts` fails when a route or its RPC list differs between the two. Test a page against `test/fakeApi.ts`, an in-memory Kondukter (catalog, keys, instances with a stream you drive with `setPhase`, usage) that records the requests the page made.
+
+Things the demo's setup makes easy to get wrong, all handled in `src/lib/`:
+
+- The app is served over plain HTTP on the tailnet, which browsers treat as an insecure context: `crypto.randomUUID()` and `navigator.clipboard` do not exist there. Use `newId()` and `copyText()`.
+- A browser allows about six HTTP/1.1 connections per host and each `WatchInstance` stream holds one. Watch at most a few instances at a time (see `MAX_LIST_STREAMS`).
+- TanStack Query hashes keys as JSON, which cannot hold a `bigint`. Keep filters in query keys as plain numbers and convert in the query function.

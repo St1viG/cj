@@ -22,7 +22,7 @@ Access rules, as built:
 | `/app/offers` | customer | table: accelerator kind / model / count, vCPU, RAM, disk, region, capacity class, price per hour; filters for each column | Create from offer → `/app/instances/new?offer=…` | `CatalogService.ListOffers` |
 | `/app/instances/new` | customer | form: offer (preselected or picker), image (filtered to the offer's arch and accelerator stack), SSH keys (multi-select from account), exposed ports (list), optional cloud-init user-data (textarea, 16 KiB cap) | Create → redirect to detail | `CatalogService.ListOffers`, `CatalogService.ListImages`, `AccountService.ListSSHKeys`, `InstanceService.CreateInstance` |
 | `/app/instances` | customer | table: id, phase (live), offer, region, node arch, running minutes, estimated cost, created at | Open detail; Terminate (confirm) | `InstanceService.ListInstances`, `InstanceService.WatchInstance`, `InstanceService.TerminateInstance` |
-| `/app/instances/:id` | customer | phase + reason (live); event timeline; connection info (`ssh -p <port> ubuntu@<host>` with copy); port mappings; image; SSH keys used; running minutes and estimated cost | Terminate (confirm); copy SSH command | `InstanceService.GetInstance`, `InstanceService.WatchInstance`, `UsageService.ListUsage`, `InstanceService.TerminateInstance` |
+| `/app/instances/:id` | customer | phase + reason (live); event timeline; connection info (`ssh -p <port> ubuntu@<host>` with copy); port mappings; image; SSH keys used; running minutes and estimated cost (both from `Instance.usage`, which every read fills in) | Terminate (confirm); copy SSH command | `InstanceService.GetInstance`, `InstanceService.WatchInstance`, `InstanceService.TerminateInstance` |
 | `/app/keys` | customer | SSH keys (name, fingerprint, added); API keys (name, prefix, created, last used) | Add SSH key; delete SSH key; create API key (shown once); revoke API key | `AccountService.*` |
 | `/app/usage` | customer | per-instance running minutes and estimated cost for a period; totals | Period filter | `UsageService.ListUsage` |
 | `/partner` | partner | redirect to `/partner/nodes` | — | — |
@@ -47,6 +47,19 @@ All under `web/src/`; see [web/README.md](../web/README.md).
 - `DataTable`, `Form`, `Field`, `Confirm`, `QueryState` (`components/`) — plain unstyled primitives with the loading, empty and error states built in; the owner replaces or restyles them. `Confirm` asks in place (no browser dialog).
 - Transport (`api/`) — `@connectrpc/connect-web` to `/api` with `credentials: "include"`, JSON on the wire; one typed client per service from `gen/ts` through `useApi()`.
 - Route table (`routes.ts`) — this document's table as data. The router, the area navigation and the placeholders read it; `routes.test.ts` fails if a route or its RPC list differs from the table above, or names an RPC that does not exist in the generated services.
+
+## Customer pages, as built (P5.2)
+
+All six `/app/*` routes render real pages; the rows above are what they show.
+
+- **`/app/offers`**: the table plus filters for region, accelerator, model, architecture, capacity, min vCPU and min RAM, each sent to `ListOffers` (apply with the button, clear with "Clear filters"). The dropdown choices come from the unfiltered list, so they stay put while filtering. "Create instance" opens the form with that offer chosen.
+- **`/app/instances/new`**: the offer picker, an architecture choice when the offer has more than one, the images that run on that offer and architecture, an optional name, the account's SSH keys as checkboxes (at least one is required, as in the API), exposed ports (`8080`, `8080/tcp`, `53/udp`, separated by commas or new lines; `22/tcp` is refused because it is always exposed), and optional user-data (at most 16 KiB, counted in bytes). A failed submit shows the server's reason; a retry of the identical request reuses its idempotency key, so it cannot create twice.
+- **`/app/instances`**: newest 100 instances (a note says so when there are more), ended ones behind a checkbox. Phase, running minutes and estimated cost come from `Instance.usage`. The list polls every 5 s, and follows at most three instances that are mid-transition (pending, scheduled, provisioning, terminating) with `WatchInstance`, so a phase change shows at once: a browser allows about six HTTP/1.1 connections per host and every stream holds one.
+- **`/app/instances/:id`**: status, the `ssh` command with a copy button (it falls back to selecting text on plain HTTP, where `navigator.clipboard` does not exist, and says if even that fails), host, port and user, the port-mapping table, details, usage and the timeline. It follows the instance with one `WatchInstance` stream and refetches the timeline when the phase changes. Terminate asks first and is disabled once the instance is ending or ended.
+- **`/app/keys`**: SSH keys (add, delete) and API keys (create, revoke). A new API key's secret is shown once, in a box that stays until dismissed; every creation uses a fresh idempotency key because the server's replay of a key returns the key without its secret.
+- **`/app/usage`**: per-instance running minutes and estimated cost, with totals. The period is whole days in the browser's time zone, from the start of "From" to the end of "To"; either may be left empty.
+
+Prices are shown as estimates (ADR-0023); nothing here moves money.
 
 ## Explicitly not here
 

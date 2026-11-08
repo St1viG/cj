@@ -1,5 +1,5 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
-import { isUnauthenticated } from "./errors";
+import { isPermanent, isUnauthenticated } from "./errors";
 import { keys } from "./keys";
 
 /**
@@ -17,7 +17,8 @@ export function createQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         refetchInterval: 5_000,
-        retry: (count, e) => count < 2 && !isUnauthenticated(e),
+        // Not found, not allowed and not signed in will not change by asking again.
+        retry: (count, e) => count < 2 && !isPermanent(e),
         refetchOnWindowFocus: true,
       },
     },
