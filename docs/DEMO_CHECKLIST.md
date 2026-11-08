@@ -101,6 +101,5 @@ Collected while building P4 and P5. Each one has a cause that is understood; non
 | Agents cannot connect after the stack was restarted. | The gateway certificate was issued while Tailscale was down. | `preflight.sh` catches it. `make demo-down`, `tailscale up`, then `make demo-up`. Never use `V=1`. |
 | A Mac node drops off when its lid closes. | A lid closed on battery, or on AC without an external display, sleeps the Mac whatever `caffeinate` says. | Keep the lid open, or have the owner run `sudo pmset -a disablesleep 1` and undo it afterwards. |
 | The operator's catalog page has not been tried with a deprecated image. | P5.4's listing of deprecated images was written against fixtures only. | Do not deprecate an image during the demo. |
-| `/stage` gives a 404. | The stage page is P5.5, which is in review (PR #4) and not merged yet. | Run the drills with `hack/demo-failure.sh` alone. |
 
 When a rehearsal finds a new one, add a row. A symptom with no known workaround goes in the roadmap's risk register instead.

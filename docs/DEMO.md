@@ -2,7 +2,7 @@
 
 This is the script for the Kondukter showcase: what to run, what the audience should see, and what to say. Anyone on the team should be able to run the demo from this file alone. The day before and the last 30 minutes are in [`DEMO_CHECKLIST.md`](DEMO_CHECKLIST.md).
 
-> **Status (2026-11-08).** Written on the development Mac against mock-driver agents. The real fleet is not enrolled yet (P4.4), and the GPU image waits for P1.6, so no step here has been timed on the hardware. A time marked *measured* comes from spike S3 or a mock run; every other time is the roadmap's limit. The stage view (`/stage`, P5.5) is still being built. P6.3's rehearsals fill in the real times.
+> **Status (2026-11-08).** Written on the development Mac against mock-driver agents. The real fleet is not enrolled yet (P4.4), and the GPU image waits for P1.6, so no step here has been timed on the hardware. A time marked *measured* comes from spike S3 or a mock run; every other time is the roadmap's limit. The stage view (`/stage`, P5.5) is merged and was checked against failure drill 1 with mock agents, but not on a projector. P6.3's rehearsals fill in the real times.
 
 ## The cast
 
@@ -172,7 +172,7 @@ The resilience part of the demo has three drills. [`hack/demo-failure.sh`](../ha
 
 Run it on MAC-P from the repo root, after `make demo-up`, with the fleet `READY`. Run `make demo-reset` afterwards.
 
-The script signs in as the seeded demo accounts, so it needs no API key. For the audience, put the operator's `/stage?demo=1` (P5.5) or the customer's instance page next to the script's terminal.
+The script signs in as the seeded demo accounts, so it needs no API key. For the audience, put the operator's `/stage?demo=1` or the customer's instance page next to the script's terminal.
 
 ### Drill 1: kill the agent under a GPU VM
 
