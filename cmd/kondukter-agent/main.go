@@ -10,13 +10,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/St1viG/cj/internal/agent"
 	"github.com/St1viG/cj/internal/agent/config"
+	"github.com/St1viG/cj/internal/agent/enroll"
 	"github.com/St1viG/cj/internal/agent/inventory"
+	"github.com/St1viG/cj/internal/agent/store"
 	"github.com/St1viG/cj/internal/logging"
 	"github.com/St1viG/cj/internal/version"
 )
@@ -88,13 +91,45 @@ func newEnrollCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enroll",
 		Short: "Exchange a one-time token for this node's mTLS identity",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return errors.New("enroll is not implemented yet (roadmap P3.2)")
+		Long: "Generates a key, sends a CSR with the token to Kondukter, verifies and stores the " +
+			"returned certificate, and writes server and gateway into the config file.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path, _ := cmd.Flags().GetString("config")
+			cfg, err := config.Load(path)
+			if err != nil {
+				return err
+			}
+			server, _ := cmd.Flags().GetString("server")
+			if server == "" {
+				server = cfg.Server
+			}
+			token, _ := cmd.Flags().GetString("token")
+			force, _ := cmd.Flags().GetBool("force")
+			st, err := store.Open(filepath.Join(cfg.DataDir, store.FileName))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = st.Close() }()
+			hostname, _ := os.Hostname()
+			res, err := enroll.Run(cmd.Context(), enroll.Options{
+				Server: server, Token: token, Store: st, Hostname: hostname,
+				AgentVersion: version.Get(), Force: force,
+			})
+			if err != nil {
+				return err
+			}
+			if err := config.SetKeys(path, map[string]string{"server": server, "gateway": res.GatewayAddress}); err != nil {
+				return fmt.Errorf("enrolled as node %s, but updating %s failed: %w", res.NodeID, path, err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "enrolled as node %s; gateway %s; certificate valid until %s\n",
+				res.NodeID, res.GatewayAddress, res.NotAfter.UTC().Format(time.RFC3339))
+			return nil
 		},
 	}
-	cmd.Flags().String("server", "", "Kondukter API URL")
+	cmd.Flags().String("server", "", "Kondukter API URL (default: server from the config)")
 	cmd.Flags().String("token", "", "one-time enrollment token")
+	cmd.Flags().Bool("force", false, "replace an existing identity")
 	return cmd
 }
 

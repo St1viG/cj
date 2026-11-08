@@ -3,6 +3,7 @@ package config_test
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,5 +66,33 @@ func TestLoadMissingFile(t *testing.T) {
 	_, err := config.Load(filepath.Join(t.TempDir(), "nope.yaml"))
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("err = %v, want not-exist", err)
+	}
+}
+
+func TestSetKeysKeepsCommentsAndValidates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	orig := "# Node FED-D\ndriver: libvirt # the real one\nserver: http://old:8080\nreserved:\n  vcpu: 2\n"
+	if err := os.WriteFile(path, []byte(orig), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetKeys(path, map[string]string{"server": "http://new:8080", "gateway": "kondukter.ts.net:8443"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	got := string(raw)
+	for _, want := range []string{"# Node FED-D", "# the real one", "server: http://new:8080", "gateway: kondukter.ts.net:8443", "vcpu: 2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rewritten config lacks %q:\n%s", want, got)
+		}
+	}
+	cfg, err := config.Load(path)
+	if err != nil || cfg.Gateway != "kondukter.ts.net:8443" || cfg.Reserved.VCPU != 2 {
+		t.Fatalf("reload = %+v, %v", cfg, err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %v, want 0640 kept", fi.Mode().Perm())
+	}
+	if err := config.SetKeys(path, map[string]string{"driver": "kvm"}); err == nil {
+		t.Fatal("SetKeys wrote an invalid config")
 	}
 }

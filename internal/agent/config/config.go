@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"slices"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -199,4 +200,65 @@ func (m Mock) validate() error {
 		seen[a.ID] = true
 	}
 	return nil
+}
+
+// SetKeys sets top-level string keys in the YAML file at path, keeping
+// comments and the order of everything else, and writes it atomically.
+func SetKeys(path string, kv map[string]string) error {
+	raw, err := os.ReadFile(path) //nolint:gosec // the operator chooses the config path
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("config: %s: %w", path, err)
+	}
+	if doc.Kind == 0 {
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("config: %s: top level is not a mapping", path)
+	}
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		set := false
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			if root.Content[i].Value == k {
+				root.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv[k]}
+				set = true
+				break
+			}
+		}
+		if !set {
+			root.Content = append(root.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv[k]})
+		}
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	if _, err := Parse(buf.Bytes()); err != nil {
+		return fmt.Errorf("config: refusing to write an invalid config: %w", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), fi.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

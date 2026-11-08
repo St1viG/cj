@@ -341,6 +341,13 @@ type Partner struct {
 	CreatedAt       time.Time
 }
 
+type PkiCa struct {
+	ID            int16
+	CertPem       string
+	KeyCiphertext []byte
+	CreatedAt     time.Time
+}
+
 type Region struct {
 	Name        string
 	Description string

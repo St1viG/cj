@@ -45,3 +45,37 @@ func (q *Queries) CreateEnrollmentToken(ctx context.Context, arg CreateEnrollmen
 	)
 	return i, err
 }
+
+const getEnrollmentTokenByHashForUpdate = `-- name: GetEnrollmentTokenByHashForUpdate :one
+SELECT id, site_id, token_hash, created_by, created_at, expires_at, used_at, node_id FROM enrollment_tokens WHERE token_hash = $1 FOR UPDATE
+`
+
+func (q *Queries) GetEnrollmentTokenByHashForUpdate(ctx context.Context, tokenHash []byte) (EnrollmentToken, error) {
+	row := q.db.QueryRow(ctx, getEnrollmentTokenByHashForUpdate, tokenHash)
+	var i EnrollmentToken
+	err := row.Scan(
+		&i.ID,
+		&i.SiteID,
+		&i.TokenHash,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.NodeID,
+	)
+	return i, err
+}
+
+const markEnrollmentTokenUsed = `-- name: MarkEnrollmentTokenUsed :exec
+UPDATE enrollment_tokens SET used_at = now(), node_id = $2 WHERE id = $1
+`
+
+type MarkEnrollmentTokenUsedParams struct {
+	ID     uuid.UUID
+	NodeID *uuid.UUID
+}
+
+func (q *Queries) MarkEnrollmentTokenUsed(ctx context.Context, arg MarkEnrollmentTokenUsedParams) error {
+	_, err := q.db.Exec(ctx, markEnrollmentTokenUsed, arg.ID, arg.NodeID)
+	return err
+}

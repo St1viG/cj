@@ -74,6 +74,58 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 	return i, err
 }
 
+const createNodeWithID = `-- name: CreateNodeWithID :one
+INSERT INTO nodes (id, site_id, hostname, agent_version, cert_fingerprint, cert_expires_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at
+`
+
+type CreateNodeWithIDParams struct {
+	ID              uuid.UUID
+	SiteID          uuid.UUID
+	Hostname        string
+	AgentVersion    string
+	CertFingerprint *string
+	CertExpiresAt   *time.Time
+}
+
+// Enrollment picks the id first: it goes into the certificate's SAN.
+func (q *Queries) CreateNodeWithID(ctx context.Context, arg CreateNodeWithIDParams) (Node, error) {
+	row := q.db.QueryRow(ctx, createNodeWithID,
+		arg.ID,
+		arg.SiteID,
+		arg.Hostname,
+		arg.AgentVersion,
+		arg.CertFingerprint,
+		arg.CertExpiresAt,
+	)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.SiteID,
+		&i.Hostname,
+		&i.Arch,
+		&i.Os,
+		&i.Kernel,
+		&i.Driver,
+		&i.AgentVersion,
+		&i.Status,
+		&i.StatusReason,
+		&i.CapacityClass,
+		&i.CertFingerprint,
+		&i.CertExpiresAt,
+		&i.Labels,
+		&i.AdvertiseAddress,
+		&i.CachedImages,
+		&i.DesiredGeneration,
+		&i.ObservedGeneration,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getNode = `-- name: GetNode :one
 SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes WHERE id = $1
 `
