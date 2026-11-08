@@ -71,3 +71,185 @@ func (q *Queries) InsertUsageRecord(ctx context.Context, arg InsertUsageRecordPa
 	}
 	return result.RowsAffected(), nil
 }
+
+const listEventsForInstances = `-- name: ListEventsForInstances :many
+SELECT id, instance_id, from_phase, to_phase, reason, at FROM instance_events WHERE instance_id = ANY($1::uuid[]) ORDER BY instance_id, id
+`
+
+func (q *Queries) ListEventsForInstances(ctx context.Context, ids []uuid.UUID) ([]InstanceEvent, error) {
+	rows, err := q.db.Query(ctx, listEventsForInstances, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InstanceEvent{}
+	for rows.Next() {
+		var i InstanceEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstanceID,
+			&i.FromPhase,
+			&i.ToPhase,
+			&i.Reason,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMeteredInstances = `-- name: ListMeteredInstances :many
+SELECT DISTINCT instance_id FROM usage_records WHERE period_end > $1::timestamptz
+`
+
+// Cross-check candidates: instances with agent usage records since the cutoff.
+func (q *Queries) ListMeteredInstances(ctx context.Context, cutoff time.Time) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listMeteredInstances, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var instance_id uuid.UUID
+		if err := rows.Scan(&instance_id); err != nil {
+			return nil, err
+		}
+		items = append(items, instance_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgUsageInstances = `-- name: ListOrgUsageInstances :many
+SELECT i.id, i.org_id, i.offer_id, i.image_id, i.node_id, i.name, i.desired, i.phase, i.phase_reason, i.phase_changed_at, i.placement_generation, i.spec, i.connection, i.created_by, i.created_at, i.scheduled_at, i.running_at, i.terminated_at, i.agent_status_at, o.id, o.shape_id, o.region, o.capacity_class, o.price_per_hour_minor, o.currency, o.active, o.created_at, sh.name AS shape_name
+FROM instances i JOIN offers o ON o.id = i.offer_id JOIN shapes sh ON sh.id = o.shape_id
+WHERE i.org_id = $1
+  AND ($2::uuid IS NULL OR i.id = $2::uuid)
+  AND i.running_at IS NOT NULL AND i.running_at < $3::timestamptz
+  AND (i.terminated_at IS NULL OR i.terminated_at > $4::timestamptz)
+ORDER BY i.created_at DESC, i.id
+`
+
+type ListOrgUsageInstancesParams struct {
+	OrgID       uuid.UUID
+	InstanceID  *uuid.UUID
+	WindowEnd   time.Time
+	WindowStart time.Time
+}
+
+type ListOrgUsageInstancesRow struct {
+	Instance  Instance
+	Offer     Offer
+	ShapeName string
+}
+
+// Instances of an org that were RUNNING at some point in the window.
+func (q *Queries) ListOrgUsageInstances(ctx context.Context, arg ListOrgUsageInstancesParams) ([]ListOrgUsageInstancesRow, error) {
+	rows, err := q.db.Query(ctx, listOrgUsageInstances,
+		arg.OrgID,
+		arg.InstanceID,
+		arg.WindowEnd,
+		arg.WindowStart,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrgUsageInstancesRow{}
+	for rows.Next() {
+		var i ListOrgUsageInstancesRow
+		if err := rows.Scan(
+			&i.Instance.ID,
+			&i.Instance.OrgID,
+			&i.Instance.OfferID,
+			&i.Instance.ImageID,
+			&i.Instance.NodeID,
+			&i.Instance.Name,
+			&i.Instance.Desired,
+			&i.Instance.Phase,
+			&i.Instance.PhaseReason,
+			&i.Instance.PhaseChangedAt,
+			&i.Instance.PlacementGeneration,
+			&i.Instance.Spec,
+			&i.Instance.Connection,
+			&i.Instance.CreatedBy,
+			&i.Instance.CreatedAt,
+			&i.Instance.ScheduledAt,
+			&i.Instance.RunningAt,
+			&i.Instance.TerminatedAt,
+			&i.Instance.AgentStatusAt,
+			&i.Offer.ID,
+			&i.Offer.ShapeID,
+			&i.Offer.Region,
+			&i.Offer.CapacityClass,
+			&i.Offer.PricePerHourMinor,
+			&i.Offer.Currency,
+			&i.Offer.Active,
+			&i.Offer.CreatedAt,
+			&i.ShapeName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sumAgentUsage = `-- name: SumAgentUsage :many
+SELECT instance_id, coalesce(sum(running_seconds), 0)::bigint AS seconds,
+  min(period_start)::timestamptz AS first_start, max(period_end)::timestamptz AS last_end
+FROM usage_records
+WHERE instance_id = ANY($1::uuid[])
+  AND period_start >= $2::timestamptz AND period_end <= $3::timestamptz
+GROUP BY instance_id
+`
+
+type SumAgentUsageParams struct {
+	Ids         []uuid.UUID
+	WindowStart time.Time
+	WindowEnd   time.Time
+}
+
+type SumAgentUsageRow struct {
+	InstanceID uuid.UUID
+	Seconds    int64
+	FirstStart time.Time
+	LastEnd    time.Time
+}
+
+// Agent-reported running seconds per instance over periods inside the window.
+func (q *Queries) SumAgentUsage(ctx context.Context, arg SumAgentUsageParams) ([]SumAgentUsageRow, error) {
+	rows, err := q.db.Query(ctx, sumAgentUsage, arg.Ids, arg.WindowStart, arg.WindowEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SumAgentUsageRow{}
+	for rows.Next() {
+		var i SumAgentUsageRow
+		if err := rows.Scan(
+			&i.InstanceID,
+			&i.Seconds,
+			&i.FirstStart,
+			&i.LastEnd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

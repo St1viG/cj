@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/St1viG/cj/gen/go/kondukter/api/v1"
+	"github.com/St1viG/cj/internal/controlplane/usage"
 	"github.com/St1viG/cj/internal/store"
 	"github.com/St1viG/cj/internal/store/db"
 )
@@ -118,6 +122,35 @@ func instanceProto(r instanceRow) (*apiv1.Instance, error) {
 		out.Connection = c
 	}
 	return out, nil
+}
+
+// instanceProtos converts rows and attaches each instance's usage (running
+// time from its events, estimated cost at its offer's price), with one
+// events query for the whole batch.
+func instanceProtos(ctx context.Context, q *db.Queries, rows ...instanceRow) ([]*apiv1.Instance, error) {
+	ids := make([]uuid.UUID, len(rows))
+	for i, r := range rows {
+		ids[i] = r.Instance.ID
+	}
+	evs, err := usage.Events(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	out := make([]*apiv1.Instance, len(rows))
+	for i, r := range rows {
+		inst, err := instanceProto(r)
+		if err != nil {
+			return nil, err
+		}
+		inst.Usage = usageProto(usage.Compute(evs[r.Instance.ID], now, usage.Window{}, r.Offer.PricePerHourMinor), r.Offer.Currency)
+		out[i] = inst
+	}
+	return out, nil
+}
+
+func usageProto(f usage.Figures, currency string) *apiv1.Usage {
+	return &apiv1.Usage{RunningSeconds: f.Seconds, RunningMinutes: f.Minutes, EstimatedCost: moneyProto(f.CostMinor, currency)}
 }
 
 func principalProto(p Principal) *apiv1.Principal {

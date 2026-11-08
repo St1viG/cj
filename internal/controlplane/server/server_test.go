@@ -20,6 +20,7 @@ import (
 	"github.com/St1viG/cj/internal/agent/stream"
 	"github.com/St1viG/cj/internal/controlplane/controller"
 	"github.com/St1viG/cj/internal/controlplane/server"
+	"github.com/St1viG/cj/internal/controlplane/usage"
 	"github.com/St1viG/cj/internal/store"
 	"github.com/St1viG/cj/internal/store/db"
 	"github.com/St1viG/cj/internal/store/storetest"
@@ -124,6 +125,7 @@ func (n *node) start() {
 	a, err := agent.New(n.cfg, quiet, agent.Options{
 		Stream:            stream.Config{HeartbeatInterval: 200 * time.Millisecond},
 		ReconcileInterval: 200 * time.Millisecond,
+		MeterPeriod:       time.Second,
 	})
 	if err != nil {
 		n.t.Fatal(err)
@@ -294,4 +296,37 @@ func TestUnreachableWhileConnectedRecovers(t *testing.T) {
 	eventually(t, 10*time.Second, "node READY and instance RUNNING without restarting the agent", func() bool {
 		return p.nodeStatus(t, n.id) == db.NodeStatusReady && p.instance(t, inst.ID).Phase == db.InstancePhaseRunning
 	})
+}
+
+// TestUsageCrossCheck (P3.11): the agent's per-period usage records agree
+// with the event-derived running time over the span they cover.
+func TestUsageCrossCheck(t *testing.T) {
+	ctx := context.Background()
+	p := startPlane(t)
+	p.enroll(t, "metered", config.Mock{Arch: "amd64", VCPU: 8, RAMMiB: 16384, DiskGiB: 200, ProvisionDelay: 100 * time.Millisecond})
+	inst := p.create(t, p.f.CPUOffer, p.f.CPUImages["amd64"])
+	eventually(t, 10*time.Second, "instance RUNNING", func() bool { return p.instance(t, inst.ID).Phase == db.InstancePhaseRunning })
+
+	var records int
+	eventually(t, 15*time.Second, "five metered seconds", func() bool {
+		_ = p.srv.Store.Pool.QueryRow(ctx, `SELECT count(*) FROM usage_records WHERE instance_id = $1`, inst.ID).Scan(&records)
+		return records >= 5
+	})
+	sums, err := p.srv.Store.SumAgentUsage(ctx, db.SumAgentUsageParams{Ids: []uuid.UUID{inst.ID}, WindowStart: time.Unix(0, 0), WindowEnd: time.Now()})
+	if err != nil || len(sums) != 1 {
+		t.Fatalf("agent usage = %v, %v", sums, err)
+	}
+	evs, err := usage.Events(ctx, p.srv.Store.Queries, []uuid.UUID{inst.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := usage.RunningSeconds(evs[inst.ID], time.Now(), usage.Window{From: sums[0].FirstStart, To: sums[0].LastEnd})
+	if d := ev - sums[0].Seconds; d > 1 || d < -1 {
+		t.Fatalf("over %s–%s the events give %d s, the agent %d s", sums[0].FirstStart.Format(time.TimeOnly),
+			sums[0].LastEnd.Format(time.TimeOnly), ev, sums[0].Seconds)
+	}
+	c := &usage.CrossCheck{Store: p.srv.Store, Log: quiet, Tolerance: 2 * time.Second}
+	if bad, err := c.Sweep(ctx); err != nil || len(bad) != 0 {
+		t.Fatalf("cross-check = %+v, %v", bad, err)
+	}
 }

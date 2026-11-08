@@ -26,6 +26,7 @@ import (
 	"github.com/St1viG/cj/internal/controlplane/gateway"
 	"github.com/St1viG/cj/internal/controlplane/pki"
 	"github.com/St1viG/cj/internal/controlplane/scheduler"
+	"github.com/St1viG/cj/internal/controlplane/usage"
 	"github.com/St1viG/cj/internal/store"
 )
 
@@ -95,6 +96,7 @@ type Server struct {
 	Instances  *controller.InstanceController
 	Bus        *events.Bus
 	API        *api.API
+	Usage      *usage.CrossCheck
 	// Mux is the API router; services are mounted on it.
 	Mux *http.ServeMux
 }
@@ -135,6 +137,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	s.API = api.New(st, log.With("module", "api"), s.Bus, s.Scheduler, s.Instances)
 	s.API.Enrollment, s.API.Gateway = s.Enrollment, s.Gateway
 	s.API.SecureCookies = strings.HasPrefix(cfg.PublicURL, "https://")
+	s.Usage = &usage.CrossCheck{Store: st, Log: log.With("module", "usage")}
 
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -198,6 +201,7 @@ func (s *Server) Serve(ctx context.Context, apiLis, gwLis net.Listener, gwTLS *t
 	eg.Go(func() error { return s.Scheduler.Run(ctx) })
 	eg.Go(func() error { return s.Instances.Run(ctx) })
 	eg.Go(func() error { return s.API.Janitor(ctx) })
+	eg.Go(func() error { return s.Usage.Run(ctx) })
 	eg.Go(func() error {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

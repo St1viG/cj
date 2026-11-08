@@ -1,0 +1,43 @@
+# Spike S3 (roadmap P1.4): one customer VM on an 8 GB Apple Silicon Mac,
+# driven non-interactively by limactl. The Lima driver (P2.6) renders the
+# same shape per instance from its InstanceSpec.
+#
+#   KDK_SSH_KEY="$(cat ~/.ssh/id_ed25519.pub)" envsubst < hack/s3/kdk.yaml > /tmp/kdk-test.yaml
+#   limactl create --name kdk-test --tty=false /tmp/kdk-test.yaml
+#   limactl start kdk-test
+#   ssh -p 40001 ubuntu@<this Mac's address>
+vmType: vz
+arch: aarch64
+images:
+  - location: https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-arm64.img
+    arch: aarch64
+    digest: sha256:50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e
+cpus: 2
+memory: 2GiB
+disk: 20GiB
+# A customer VM shares nothing with the host.
+mounts: []
+containerd:
+  system: false
+  user: false
+# Lima's own user stays (it is how limactl reaches the guest); the customer
+# logs in as ubuntu with their key, through the forwarded port.
+provision:
+  - mode: system
+    script: |
+      #!/bin/sh
+      set -eu
+      id ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo ubuntu
+      install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+      grep -qxF '${KDK_SSH_KEY}' /home/ubuntu/.ssh/authorized_keys 2>/dev/null ||
+        echo '${KDK_SSH_KEY}' >> /home/ubuntu/.ssh/authorized_keys
+      chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+      chmod 600 /home/ubuntu/.ssh/authorized_keys
+      echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-kdk-ubuntu
+portForwards:
+  - guestPort: 22
+    hostPort: 40001
+    hostIP: "0.0.0.0"
+  # Nothing else leaves the guest.
+  - guestPortRange: [1, 65535]
+    ignore: true

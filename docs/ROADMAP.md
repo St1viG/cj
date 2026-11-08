@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 16 of 45 items** (about 13.5 of 35 estimated sessions) · 4 partly done · 25 not started. Updated with every commit that finishes an item.
+**Done: 17 of 45 items** (about 14 of 35 estimated sessions) · 4 partly done · 24 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -47,7 +47,7 @@
 - [x] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
 - [x] P3.9 — `kctl` CLI
 - [x] P3.10 — Fleet simulator and chaos tests
-- [ ] P3.11 — Usage and estimated cost
+- [x] P3.11 — Usage and estimated cost
 
 **P4 — Real fleet end-to-end (CLI)**
 - [ ] P4.1 — Fedora GPU node bootstrap
@@ -498,13 +498,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
   - A Kondukter stopped while 30 instances were being placed and provisioned, and started again 2 s later, had all 20 streams back about 4 s after it started (agents on the default 1 s → 60 s backoff); the invariants held and all 30 instances were RUNNING.
   - A reconnect storm of 100 agents, once at start-up and again after a gateway restart (back in about 1 s), produced zero error log records on the control plane and on the agents.
 
-#### ☐ P3.11 — Usage and estimated cost
+#### ☑ P3.11 — Usage and estimated cost
 - **Goal:** "Usage accrues" is visible and explainable.
 - **Deliverables:** `internal/controlplane/usage`: running time per instance = sum of `RUNNING → (TERMINATING | UNREACHABLE | LOST)` intervals from `instance_events`, open interval closed at `now()`; cross-check against the sum of agent `usage_records.running_seconds`, logging discrepancies over two minutes; estimated cost = `ceil(minutes) × price_per_hour_minor / 60` in the offer's currency; `UsageService.ListUsage` (per org, optional instance and period filters) and the fields `running_minutes`, `estimated_cost_minor`, `currency` on `GetInstance`; shown by `kctl get` and `kctl usage`.
 - **Acceptance criteria:** Unit tests with synthetic events (including an `UNREACHABLE` gap and recovery) match expected minutes; on the simulator, after three minutes `RUNNING`, `kctl get` shows 3–4 minutes and the matching cost; the agent cross-check equals the event figure within one minute.
 - **Depends on:** P3.10
 - **Decisions required:** ADR-0023
 - **Size:** S
+- **As built (2026-11-08):** `internal/controlplane/usage`: `RunningSeconds` sums each move to RUNNING until the next event leaves it (TERMINATING, UNREACHABLE, LOST, …), clips to an optional window, and closes an open interval at now. An UNREACHABLE gap stops the clock and a recovery restarts it, as the roadmap states; ADR-0023's use of agent records to cover UNREACHABLE periods is not applied in the demo. `Minutes` = ceil(seconds / 60); `CostMinor` = minutes × price per hour / 60 rounded up to a whole cent, so a running instance never shows as free. Every `Instance` the API returns (Create, Get, List, Watch, Terminate, Admin) carries `usage` (`running_seconds`, `running_minutes`, `estimated_cost`), computed with one events query per batch. `UsageService.ListUsage` (customers; optional instance filter and period window) returns per-instance figures, `agent_reported_seconds`, and totals per currency. The cross-check (`usage.CrossCheck`, every 5 min in `kondukter serve`) compares each recently metered instance's `usage_records` with the event figure over the span the records cover, and logs a warning above 2 min. The agent's meter is P2.8. Tests: synthetic events (still running, terminated, an UNREACHABLE gap with recovery, UNREACHABLE → LOST, window clipping) and the rounding of minutes and cost; the cross-check with a matching agent, a shorter agent span, and three lost records (600 vs 420 s); the API (`GetInstance` usage after 3 minutes, `ListUsage` rows, totals and agent seconds, an empty early window, org B, partner denied); and a live server test where a real agent metering every 1 s agrees with the events to within 1 s. **On the simulator** (`kondukter serve` + `kdk-sim` with the default 60 s meter, live): after 3 min 5 s RUNNING, `kctl get` showed `running: 4 min` and `estimated cost: 0.01 EUR` (4 min at 5 cents per hour, rounded up). Over the agent's three metered periods (05:59–06:02) the agent reported 137 s and the events gave 138 s, within the required minute. No errors were logged.
 
 ---
 
@@ -661,11 +662,11 @@ Not scheduled. Collected so nothing is forgotten.
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+3 partly) |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 10 |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **16 (+4 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **17 (+4 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

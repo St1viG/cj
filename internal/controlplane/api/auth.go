@@ -83,6 +83,7 @@ var public = map[string]bool{
 // service that is not listed is open to every authenticated caller.
 var roles = map[string][]apiv1.Role{
 	"/" + apiv1connect.InstanceServiceName + "/": {apiv1.Role_ROLE_CUSTOMER},
+	"/" + apiv1connect.UsageServiceName + "/":    {apiv1.Role_ROLE_CUSTOMER},
 	"/" + apiv1connect.PartnerServiceName + "/":  {apiv1.Role_ROLE_PARTNER, apiv1.Role_ROLE_OPERATOR},
 	"/" + apiv1connect.AdminServiceName + "/":    {apiv1.Role_ROLE_OPERATOR},
 }
