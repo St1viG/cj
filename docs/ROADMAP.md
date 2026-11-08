@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 11 partly done · 10 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 12 partly done · 9 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -50,7 +50,7 @@
 - [x] P3.11 — Usage and estimated cost
 
 **P4 — Real fleet end-to-end (CLI)**
-- [ ] P4.1 — Fedora GPU node bootstrap
+- [ ] P4.1 — Fedora GPU node bootstrap · *partly done: `bootstrap.sh --check` is written and run read-only on FED-D; the install half waits for the P1.7 decisions and a root session on the host*
 - [ ] P4.2 — Mac node bootstrap
 - [ ] P4.3 — Demo deployment of the control plane · *partly done: built and run on the development Mac; the checks from FED-D and on MAC-P wait for those hosts*
 - [ ] P4.4 — Enroll the fleet
@@ -582,7 +582,15 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 **Exit criterion:** SPEC §3.2 happy path and failure path pass on MAC-A, MAC-B, FED-D and FED-L driven by `kctl`, three times in a row from `make demo-reset`.
 
-#### ☐ P4.1 — Fedora GPU node bootstrap
+#### ◐ P4.1 — Fedora GPU node bootstrap
+- **As built so far (2026-11-08):** `deploy/nodes/fedora/bootstrap.sh --check` and `host.env.example`.
+  - **What `--check` does:** it changes nothing and needs no root. It prints ok, warn, skip or FAIL for virtualization, the IOMMU and kernel arguments, the VFIO binding of the passthrough GPU and its IOMMU group, nouveau and nvidia kept off it, the dracut config, libvirt, `kdk-net`, the firewall, the agent and Tailscale. Each FAIL carries a `fix:` line with the root command that would put it right. It can be run from another machine: `ssh fedora 'bash -s -- --check' < deploy/nodes/fedora/bootstrap.sh`.
+  - **Run on FED-D** (host `fedora` on the tailnet; Fedora 43, kernel 6.19.9, a Ryzen 5 3600, 16 GiB, 183 GB free): 21 ok, 2 warn, 4 skip, 2 FAIL. The GTX 1060 6GB (`10de:1c03` and its audio function `10de:10f1`) is bound to `vfio-pci` and alone in IOMMU group 14. `amd_iommu=on iommu=pt vfio-pci.ids=…` are on the kernel command line, `/etc/dracut.conf.d/vfio.conf` forces the vfio modules, and the user is in the `libvirt` group with libvirt socket-activated. The two FAILs are the agent, which is not installed. Of the warns, one is that firewalld is active, which spike S1 has to settle; the other is that `nouveau` is loaded though blacklisted on the command line, with nothing using it.
+  - **Bugs the first run on the host found:** the script read its own path from `BASH_SOURCE` when piped to bash; it matched the PCI class without the colon `lspci -n` prints; and it called a loaded `nouveau` a failure although the GPU was on `vfio-pci`.
+  - **Left:**
+    - the install half: packages, kernel arguments, dracut, `kdk-net`, the firewalld arrangement (a P1.7 decision), the image pre-pull with sha256 checks, and the agent install with its config. All of it needs root on the host, so the owner runs it;
+    - the acceptance run: after a reboot, `--check` all green, `kondukter-agent` active, a second run changing nothing;
+    - the checks that need root (`inet kdk`, the agent's config and image cache) have only been skipped, not exercised.
 - **Goal:** Turn a fresh Fedora host into a node with one idempotent script.
 - **Deliverables:** `deploy/nodes/fedora/bootstrap.sh` with `README.md` and a per-host `host.env` (vfio ids, images to pre-pull, advertise address, reserved resources): installs `qemu-kvm libvirt edk2-ovmf nftables`, enables `libvirtd`; sets kernel args (IOMMU on, `iommu=pt`, `vfio-pci.ids=…`), dracut config forcing `vfio vfio_iommu_type1 vfio_pci` early with `rd.driver.pre=vfio-pci`, blacklists `nouveau` and `nvidia` on passthrough hosts, regenerates the initramfs; defines `kdk-net` (open mode, autostart); applies the firewalld arrangement decided at P1.7; creates `/var/lib/kondukter-agent/images` and pre-pulls listed images with sha256 verification; installs the agent (P2.9) with config (driver `libvirt`, reserved 2 vCPU and 2 GiB); prints the `enroll` command. A `--check` mode prints IOMMU groups, vfio bindings, libvirt and agent status without changing anything.
 - **Acceptance criteria:** On FED-D and FED-L (per their P1.7 roles): after reboot `bootstrap.sh --check` is all green; `kondukter-agent` active; a second run changes nothing; the host desktop, where present, still works on the iGPU.
@@ -871,10 +879,10 @@ Not scheduled. Collected so nothing is forgotten.
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+3 partly) |
+| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+4 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 (+2 partly) |
-| **Total** | **45** | **25** | **20** | **35** | **24 (+11 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **24 (+12 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

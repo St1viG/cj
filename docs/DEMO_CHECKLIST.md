@@ -22,7 +22,7 @@ One person can hold two roles. Nobody should hold all three on the day.
 |---|---|---|---|
 | 1 | Freeze OS updates on all five machines. | Fleet | Turn off automatic updates and install nothing from now on. Note each machine's OS version in the rehearsal log. |
 | 2 | Pull the repository and start the stack. | Presenter | `git pull --ff-only`, then `make demo-up`. It prints API keys only for accounts it creates, so keep the first run's output. |
-| 3 | Check the node hosts. | Fleet | On each node, run its `bootstrap.sh --check` (P4.1 for Fedora, P4.2 for the Macs). Neither script exists yet; until they do, check by hand that the agent service is active, Tailscale is up and the disk has room for the images. |
+| 3 | Check the node hosts. | Fleet | Fedora: `ssh <host> 'bash -s -- --check' < deploy/nodes/fedora/bootstrap.sh`, which changes nothing and prints the root command for each FAIL. Macs: P4.2's `bootstrap.sh --check` does not exist yet; until it does, check by hand that the agent service is active, Tailscale is up and the disk has room for the images. |
 | 4 | Pre-pull the images. | Fleet | An image is cached by the first instance that uses it on a node. On each real node, create one instance from every image it can run (`kctl create ... --wait`), then `make demo-reset`. `preflight.sh` fails for a node that is missing one. |
 | 5 | Verify the image digests. | Presenter | `hack/preflight.sh --deep` hashes every file in `deploy/images/dist` and compares it with the catalog. If it fails, the catalog was seeded before the image was rebuilt: fill in the new digest and run `make demo-up` again. |
 | 6 | Check the seeded accounts. | Presenter | `preflight.sh` signs in as all three. Also add the presenter's SSH public key at `/app/keys` as the customer. `make demo-reset` keeps it. |
@@ -41,7 +41,7 @@ Do these in order. The machines should already be where they will stay, since mo
 | 2 | Keep every machine awake. | Fleet | On MAC-P and on each node: `hack/demo-sleep.sh on`. `hack/demo-sleep.sh status` shows it. `preflight.sh` checks MAC-P only. |
 | 3 | All five on the tailnet. | Fleet | `tailscale status` on MAC-P shows MAC-P, MAC-A, MAC-B, FED-D and FED-L online. `preflight.sh` counts them. |
 | 4 | FED-D reachable. | Fleet | `ssh <FED-D tailnet name>` from MAC-P. The GPU story depends on this one machine. |
-| 5 | Node host checks green. | Fleet | `bootstrap.sh --check` on each node, as at T-1 day, item 3. |
+| 5 | Node host checks green. | Fleet | `bootstrap.sh --check` on each node that has one, as at T-1 day, item 3. |
 | 6 | Run `hack/preflight.sh`. | Presenter | Exit 0. It checks four `READY` nodes, no generation lag, a free healthy GTX 1060, the gateway certificate, the image caches, the digests and the accounts. If it says `live instance`, go to T-0 and come back. |
 | 7 | Look at `kctl nodes`. | Presenter | Four `READY` nodes, 0 active instances each. |
 | 8 | One browser window per role, signed in. | Presenter | A separate browser profile per role (see *Screen layout* in `DEMO.md`): customer at `/app/offers`, partner at `/partner/nodes`, operator at `/admin/nodes` and a tab at `/stage?demo=1`. |
