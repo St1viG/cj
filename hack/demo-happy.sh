@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # demo-happy.sh — roadmap P4.5: the demo's main storyline end to end with
-# kctl, run on MAC-P against the demo stack (`make demo-up`) with the fleet
-# READY. It exits non-zero if a check fails. docs/DEMO.md has the run
+# kctl, run against the demo control plane with the fleet READY: on the box
+# that runs it, or from the presenter's laptop with DEMO_API and SEED_PASSWORD
+# set (see demo-lib.sh). It exits non-zero if a check fails. docs/DEMO.md has the run
 # sheet and a section on this script.
 #
 #   hack/demo-happy.sh [RUNS]
 #
 # Each of RUNS runs (default 1) does, as the customer:
-#   1. kctl create cpu-2x2 with ubuntu-cpu arm64: RUNNING within 90 s on a
-#      Mac (Lima) node, and `kctl ssh --exec ID -- uname -m` prints aarch64.
+#   1. kctl create cpu-2x2 with ubuntu-cpu amd64: RUNNING within 120 s on a
+#      libvirt node, and `kctl ssh --exec ID -- uname -m` prints x86_64.
 #   2. kctl create the GPU offer at the same time: RUNNING within 120 s on
 #      the GPU node (libvirt), nvidia-smi shows the offer's GPU, and a short
 #      llama.cpp prompt with -ngl 99 offloads every layer to it.
@@ -16,20 +17,21 @@
 #      must follow them (ceil(minutes × price per hour / 60), in cents).
 #   4. kctl terminate both: TERMINATED, and kctl nodes (as the partner)
 #      shows each node's free capacity and instance count as before the run.
-#   5. Over ssh to each node: no libvirt domain, Lima instance, instance
+#   5. Over ssh to each node: no libvirt domain, instance
 #      directory or nft rule of either instance is left.
 # It ends with the timings per node type, also appended to the timing log.
 #
 # Overrides:
 #   HAPPY_GPU=0         skip the GPU instance
-#   HAPPY_MAC_OFFER, HAPPY_MAC_IMAGE, HAPPY_MAC_ARCH
-#                       the Mac instance (cpu-2x2, ubuntu-cpu, arm64)
+#   HAPPY_CPU_OFFER, HAPPY_CPU_IMAGE, HAPPY_CPU_ARCH
+#                       the CPU instance (cpu-2x2, ubuntu-cpu, amd64; arm64
+#                       prints aarch64 and suits a mock or Lima node)
 #   HAPPY_GPU_OFFER, HAPPY_GPU_IMAGE
 #                       the GPU instance (gpu-gtx1060-1x, ubuntu-gpu-pascal)
-#   HAPPY_MAC_DRIVER, HAPPY_GPU_DRIVER
-#                       the driver each must land on (lima, libvirt)
-#   HAPPY_MAC_LIMIT, HAPPY_GPU_LIMIT
-#                       seconds allowed from create to RUNNING (90, 120)
+#   HAPPY_CPU_DRIVER, HAPPY_GPU_DRIVER
+#                       the driver each must land on (libvirt, libvirt)
+#   HAPPY_CPU_LIMIT, HAPPY_GPU_LIMIT
+#                       seconds allowed from create to RUNNING (120, 120)
 #   HAPPY_SSH=0         skip the checks inside the VMs; mock-driver nodes,
 #                       which have no VM, skip them unless HAPPY_SSH=1
 #   HAPPY_NODE_CHECKS=0 skip step 5 (mock-driver nodes always skip it)
@@ -57,10 +59,15 @@ me=happy
 runs=${1:-1}
 case $runs in '' | *[!0-9]* | 0) die "usage: hack/demo-happy.sh [RUNS]" ;; esac
 gpu=${HAPPY_GPU:-1}
-mac_offer=${HAPPY_MAC_OFFER:-cpu-2x2} mac_image=${HAPPY_MAC_IMAGE:-ubuntu-cpu} mac_arch=${HAPPY_MAC_ARCH:-arm64}
+cpu_offer=${HAPPY_CPU_OFFER:-cpu-2x2} cpu_image=${HAPPY_CPU_IMAGE:-ubuntu-cpu} cpu_arch=${HAPPY_CPU_ARCH:-amd64}
 gpu_offer=${HAPPY_GPU_OFFER:-gpu-gtx1060-1x} gpu_image=${HAPPY_GPU_IMAGE:-ubuntu-gpu-pascal}
-mac_driver=${HAPPY_MAC_DRIVER:-lima} gpu_driver=${HAPPY_GPU_DRIVER:-libvirt}
-mac_limit=${HAPPY_MAC_LIMIT:-90} gpu_limit=${HAPPY_GPU_LIMIT:-120}
+cpu_driver=${HAPPY_CPU_DRIVER:-libvirt} gpu_driver=${HAPPY_GPU_DRIVER:-libvirt}
+cpu_limit=${HAPPY_CPU_LIMIT:-120} gpu_limit=${HAPPY_GPU_LIMIT:-120}
+case $cpu_arch in
+amd64) cpu_uname=x86_64 ;;
+arm64) cpu_uname=aarch64 ;;
+*) die "HAPPY_CPU_ARCH must be amd64 or arm64" ;;
+esac
 grow=${HAPPY_GROW:-150}
 timeout=${HAPPY_TIMEOUT:-300}
 timing_log=${HAPPY_LOG:-.demo/happy-timings.tsv}
@@ -144,7 +151,7 @@ identity=${pubkey%.pub}
 kc customer whoami >/dev/null
 kc partner whoami >/dev/null
 
-# Per instance, by index i (0 the Mac one, 1 the GPU one): kind, id, name,
+# Per instance, by index i (0 the CPU one, 1 the GPU one): kind, id, name,
 # create time, RUNNING time, SSH-ready time, terminate and TERMINATED time,
 # node hostname and driver. Bash 3.2 has no associative arrays.
 kind=() id=() name=() t_create=() t_run=() t_ssh=() t_term=() t_gone=() host=() drv=()
@@ -232,10 +239,10 @@ ssh_ready() {
 	ok "${name[i]}: SSH answers $((t_ssh[i] - t_run[i])) s after RUNNING"
 }
 
-mac_checks() {
+cpu_checks() {
 	local m
 	m=$(vm 0 'uname -m') || true
-	if [ "$m" = aarch64 ]; then ok "${name[0]}: uname -m prints aarch64"; else bad "${name[0]}: uname -m printed '$m'; want aarch64"; fi
+	if [ "$m" = "$cpu_uname" ]; then ok "${name[0]}: uname -m prints $cpu_uname"; else bad "${name[0]}: uname -m printed '$m'; want $cpu_uname"; fi
 }
 
 gpu_checks() {
@@ -393,10 +400,10 @@ one_run() { # one_run N
 	kind=() id=() name=() t_create=() t_run=() t_ssh=() t_term=() t_gone=() host=() drv=()
 	say "run $1 of $runs"
 	cap0=$(capacity)
-	create 0 mac "$mac_offer" "$mac_image" "$mac_arch"
+	create 0 cpu "$cpu_offer" "$cpu_image" "$cpu_arch"
 	[ "$gpu" = 0 ] || create 1 gpu "$gpu_offer" "$gpu_image"
 	wait_running
-	placed 0 "$mac_driver" "$mac_arch" "$mac_limit"
+	placed 0 "$cpu_driver" "$cpu_arch" "$cpu_limit"
 	if [ "$gpu" != 0 ]; then
 		placed 1 "$gpu_driver" amd64 "$gpu_limit"
 		if [ "$(jq -r --arg m "$(kc customer -o json get "${id[1]}" | jq -r .instance.shape.acceleratorModel)" \
@@ -409,7 +416,7 @@ one_run() { # one_run N
 	for i in "${!id[@]}"; do
 		if vm_ok "$i"; then
 			ssh_ready "$i" || continue
-			if [ "$i" = 0 ]; then mac_checks; else gpu_checks; fi
+			if [ "$i" = 0 ]; then cpu_checks; else gpu_checks; fi
 		else
 			log "${name[i]}: no checks inside the VM ($([ "${HAPPY_SSH:-}" = 0 ] && echo 'HAPPY_SSH=0' || echo 'mock driver'))"
 		fi

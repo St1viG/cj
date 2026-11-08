@@ -6,6 +6,9 @@
 #   KONDUKTER_API_PORT, KONDUKTER_GATEWAY_PORT, KONDUKTER_IMAGES_PORT
 #                        published ports; the environment wins over the env
 #                        file, as in compose
+#   DEMO_API             the control plane's API URL, to run the scripts from
+#                        another machine (default http://127.0.0.1:<port>)
+#   SEED_PASSWORD        the seeded accounts' password (default: the env file's)
 #   me                   message prefix, set by the caller (default demo)
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -22,12 +25,15 @@ api_port=${KONDUKTER_API_PORT:-$(envval KONDUKTER_API_PORT)}
 gw_port=${KONDUKTER_GATEWAY_PORT:-$(envval KONDUKTER_GATEWAY_PORT)}
 img_port=${KONDUKTER_IMAGES_PORT:-$(envval KONDUKTER_IMAGES_PORT)}
 export KONDUKTER_API_PORT=${api_port:=8080} KONDUKTER_GATEWAY_PORT=${gw_port:=8443} KONDUKTER_IMAGES_PORT=${img_port:=8081}
-api=http://127.0.0.1:$api_port
+api=${DEMO_API:-http://127.0.0.1:$api_port}
 
 say() { echo "${me:-demo}: $*"; }
 warn() { echo "${me:-demo}: $*" >&2; }
 die() { echo "${me:-demo}: $*" >&2; exit 1; }
-compose() { docker compose -f deploy/compose/compose.yaml --env-file "$env_file" "$@"; }
+compose() {
+	command -v docker >/dev/null || die "docker not found: the compose stack needs it (set DEMO_API to use a control plane elsewhere)"
+	docker compose -f deploy/compose/compose.yaml --env-file "$env_file" "$@"
+}
 
 # Timestamped lines for the drills: bad records a failed check in $fail and
 # carries on, so a run reports every failure before it exits non-zero.
@@ -44,7 +50,7 @@ bad() {
 }
 # short strips the enum prefix from INSTANCE_PHASE_RUNNING and the like.
 short() { sed 's/^INSTANCE_PHASE_//; s/^NODE_STATUS_//'; }
-for tool in docker jq curl; do
+for tool in jq curl; do
 	command -v "$tool" >/dev/null || die "$tool not found"
 done
 
@@ -65,5 +71,5 @@ rpc() {
 
 # login signs $1 in with the seeded password, into $jar.
 login() {
-	rpc AuthService/Login "$(jq -nc --arg e "$1" --arg p "$(envval SEED_PASSWORD)" '{email: $e, password: $p}')" >/dev/null
+	rpc AuthService/Login "$(jq -nc --arg e "$1" --arg p "${SEED_PASSWORD:-$(envval SEED_PASSWORD)}" '{email: $e, password: $p}')" >/dev/null
 }
