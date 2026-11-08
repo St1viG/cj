@@ -2,11 +2,16 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"os"
+	"os/signal"
 
-	"github.com/St1viG/cj/internal/version"
+	"github.com/St1viG/cj/internal/kctl"
 )
 
 func main() {
-	fmt.Println(version.String("kctl"))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	code := kctl.Run(ctx, os.Args[1:], kctl.Options{})
+	stop()
+	os.Exit(code)
 }

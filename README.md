@@ -40,6 +40,7 @@ bin/kondukter token create                          # one-time enrollment token 
 bin/kondukter-agent --config agent.yaml enroll --server http://localhost:8080 --token kdk_enr_…
 bin/kondukter-agent --config agent.yaml run         # driver: mock needs no VMM
 KDK_API_KEY=kdk_… hack/api-smoke.sh                 # list offers → create → watch RUNNING → terminate
+KDK_API_KEY=kdk_… hack/kctl-smoke.sh                # the same through bin/kctl (KDK_ARCH=arm64 for a Mac-like node)
 ```
 
 ## Demo fleet

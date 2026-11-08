@@ -20,6 +20,7 @@ import (
 	"github.com/St1viG/cj/internal/agent/stream"
 	"github.com/St1viG/cj/internal/controlplane/controller"
 	"github.com/St1viG/cj/internal/controlplane/server"
+	"github.com/St1viG/cj/internal/store"
 	"github.com/St1viG/cj/internal/store/db"
 	"github.com/St1viG/cj/internal/store/storetest"
 )
@@ -220,6 +221,10 @@ func TestInstanceLifecycle(t *testing.T) {
 	t.Logf("create → RUNNING in %v", took.Round(time.Millisecond))
 	if got := p.instance(t, inst.ID); got.NodeID == nil || *got.NodeID != gpu.id {
 		t.Fatalf("GPU instance on %v, want %s", got.NodeID, gpu.id)
+	}
+	// The agent's access module mapped 22/tcp; the connection is ready to paste.
+	if conn, _ := store.ParseConnection(p.instance(t, inst.ID).Connection); conn.SSHCommand != "ssh -p 40000 ubuntu@100.64.0.20" {
+		t.Fatalf("connection = %+v", conn)
 	}
 	events, _ := p.srv.Store.ListInstanceEvents(ctx, inst.ID)
 	var chain []string

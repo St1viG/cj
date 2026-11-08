@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/St1viG/cj/gen/go/kondukter/agent/v1"
+	"github.com/St1viG/cj/internal/agent/access"
 	"github.com/St1viG/cj/internal/agent/config"
 	"github.com/St1viG/cj/internal/agent/driver"
 	"github.com/St1viG/cj/internal/agent/driver/mock"
@@ -137,9 +138,21 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 	a.stream = stream.New(sc, a.store, a, a.log)
+	ports := access.New(a.store, a.cfg.PortRange.First, a.cfg.PortRange.Last, a.cfg.AdvertiseAddress)
 	a.rec = reconcile.New(reconcile.Config{
-		Driver: a.driver,
-		State:  a.store,
+		Driver:  a.driver,
+		State:   a.store,
+		Prepare: ports.Prepare,
+		Deleted: func(id string) {
+			if err := ports.Release(id); err != nil {
+				a.log.Error("release ports", "instance", id, "err", err)
+			}
+		},
+		Retain: func(keep map[string]bool) {
+			if err := ports.Retain(keep); err != nil {
+				a.log.Error("release leftover ports", "err", err)
+			}
+		},
 		Report: func(st *agentv1.InstanceStatus) error {
 			_, err := a.stream.Enqueue(&agentv1.AgentMessage{Body: &agentv1.AgentMessage_InstanceStatus{InstanceStatus: st}})
 			return err

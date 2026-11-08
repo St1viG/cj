@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -46,7 +47,13 @@ type Config struct {
 	Fresh func() bool
 	// Prepare, if set, completes a spec before Ensure (the access module
 	// fills in port mappings).
-	Prepare  func(*driver.InstanceSpec) error
+	Prepare func(*driver.InstanceSpec) error
+	// Deleted, if set, is told an instance is gone (the access module frees
+	// its ports).
+	Deleted func(id string)
+	// Retain, if set, is given every instance that is desired or on the host
+	// after a fresh pass, to drop leftovers (e.g. ports) of anything else.
+	Retain   func(keep map[string]bool)
 	Log      *slog.Logger
 	Interval time.Duration
 }
@@ -210,6 +217,13 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 	}
 
 	if fresh && attempted {
+		if r.cfg.Retain != nil {
+			keep := maps.Clone(desired)
+			for _, o := range observed {
+				keep[o.ID] = true
+			}
+			r.cfg.Retain(keep)
+		}
 		return r.cfg.State.SetAppliedGeneration(gen)
 	}
 	return nil
@@ -246,6 +260,9 @@ func (r *Reconciler) ensure(ctx context.Context, gen uint64, p *agentv1.Instance
 
 func (r *Reconciler) deleted(id string, gen uint64) {
 	r.report(&agentv1.InstanceStatus{Id: id, Phase: agentv1.Phase_PHASE_DELETED, AppliedGeneration: gen})
+	if r.cfg.Deleted != nil {
+		r.cfg.Deleted(id)
+	}
 	delete(r.known, id)
 	delete(r.reported, id)
 }

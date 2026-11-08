@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 14 of 45 items** (about 12 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
+**Done: 15 of 45 items** (about 12.5 of 35 estimated sessions) · 3 partly done · 27 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -32,7 +32,7 @@
 - [ ] P2.4 — Inventory · *partly done: the GPU check on FED-D waits for that host*
 - [ ] P2.5 — libvirt driver
 - [ ] P2.6 — Lima driver
-- [ ] P2.7 — Access module (port-map)
+- [ ] P2.7 — Access module (port-map) · *partly done: the port allocator is built; the nftables and Lima backends and the hardware checks are not*
 - [ ] P2.8 — Metering outbox and crash safety
 - [ ] P2.9 — Agent packaging
 
@@ -45,7 +45,7 @@
 - [x] P3.6 — Instance controller
 - [x] P3.7 — Public API core and API-key auth
 - [x] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
-- [ ] P3.9 — `kctl` CLI
+- [x] P3.9 — `kctl` CLI
 - [ ] P3.10 — Fleet simulator and chaos tests
 - [ ] P3.11 — Usage and estimated cost
 
@@ -364,13 +364,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0011, ADR-0020
 - **Size:** M
 
-#### ☐ P2.7 — Access module (port-map)
+#### ◐ P2.7 — Access module (port-map)
 - **Goal:** Customers reach their VM on `node-address:port`.
 - **Deliverables:** `internal/agent/access`: port allocator over the configured range (default 40000–49999) persisted in the store; port 22 always mapped plus declared `PortSpec`s. Linux backend renders `/run/kondukter-agent/kdk.nft` and applies it with `nft -f`: table `inet kdk` with a prerouting DNAT rule per mapping, a forward chain accepting `ct status dnat` and established traffic, masquerade for the `kdk-net` subnet, drop guest → RFC 1918 and `169.254.0.0/16` except the bridge gateway and DNS (per-tap anti-spoofing is Later); the firewalld arrangement from P1.7. macOS backend hands mappings to the Lima driver (`portForwards`). On startup the full ruleset is re-applied from the store (idempotent); `Delete` releases ports. `PortMapping`s (host address = the configured advertise address, the tailnet IP in the demo) are included in `InstanceStatus`.
 - **Acceptance criteria:** Unit tests for allocator persistence and ruleset rendering (golden files). On FED-D two instances get distinct ports and both are reachable from MAC-P; from inside a guest, `nc -zw2 192.168.1.1 22` and `nc -zw2 10.0.0.1 22` fail while `curl https://deb.debian.org` succeeds; after an agent restart `nft list table inet kdk` is unchanged. On MAC-A the forwarded port works.
 - **Depends on:** P2.5, P2.6
 - **Decisions required:** ADR-0016
 - **Size:** M
+- **As built so far (2026-11-08, with P3.9):** `internal/agent/access` allocates host ports from `port_range` for 22/tcp plus each declared `PortSpec`. It reuses the ports an instance already holds and otherwise takes the lowest free ones, persists them in the agent store's `ports` bucket (so they survive restarts), frees ports a spec no longer declares, returns `ErrExhausted` when the range is full, and releases on deletion (the reconciler's `Deleted` hook) and for leftovers after a fresh pass (`Retain`). `PortMapping`s carry the configured advertise address and are reported in `InstanceStatus`. Unit tests cover assignment, reuse, persistence across a reopen, release, retain and exhaustion. **Open:** the nftables ruleset rendering and apply with golden files, the firewalld arrangement, the Lima `portForwards` backend, and every hardware check.
 
 #### ☐ P2.8 — Metering outbox and crash safety
 - **Goal:** Usage is never lost or double-counted, and a crash never leaks or duplicates a VM.
@@ -466,13 +467,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** `kondukter seed accounts` landed in P3.7 (see there). **Roles** are checked in the interceptor: `PartnerService` is open to partners and operators, `AdminService` to operators only, and `InstanceService` to customers only; any other caller gets `PermissionDenied`. A partner's scope is its org's `partner_id`, an operator's is every partner, and another partner's site or node is `NotFound`. **PartnerService:** `ListSites` with node counts by status. `ListNodes` returns inventory, capacity (total, reserved, allocated, free), accelerators with their allocated flag, and the active instance count, and nothing about customers (the test checks the response for the org's name and id, the user and the instance id). `CreateEnrollmentToken` creates the token inside the audited transaction (`enrollment.CreateTokenTx`), and a replay returns the expiry without the token. `DrainNode` and `UndrainNode` go through the P3.4 node transition table, so an invalid change gets `FailedPrecondition`, and every change wakes the scheduler. `GetUtilization` returns allocatable vs allocated, accelerators allocated of total, and instance minutes summed from `usage_records` over periods that overlap the window (default: the last 24 h). **AdminService:** `ListNodes` (site and status filters; statuses are passed as `text[]` because pgx cannot encode enum arrays), `ListInstances` across orgs (org and node filters, keyset pages), `QuarantineNode`, `UnquarantineNode` (READY if the gateway has the node's stream, otherwise UNREACHABLE until its next Hello), `ForceTerminateInstance` (any org; reason recorded), `ListAuditLog` (actor and action filters, newest first, pages), and `ListCatalog` with inactive entries. **Audit:** one `audit_log` row per Partner or Admin mutation and per customer `TerminateInstance`, written in the same transaction as the change. Each row records actor type (`api_key` or `user`), user id and email, action (`partner.drain_node`, `admin.quarantine_node`, `instance.terminate`, …), target (`node/<id>`, `site/<id>`, `instance/<id>`) and a payload (from and to status, reason, key id). All mutations take idempotency keys. **Sessions:** `Login` verifies the argon2id hash (an unknown email costs the same as a wrong password) and stores only the SHA-256 of a 256-bit token. It sets `kdk_session` with `HttpOnly`, `SameSite=Lax` and `Path=/`, plus `Secure` when `KONDUKTER_PUBLIC_URL` is https. The authenticator takes the cookie when there is no `Authorization` header, sessions slide by 12 h on use (written at most once a minute), and `Logout` deletes the session and clears the cookie. Tests cover: the partner sees only its own site's nodes and no customer data; the operator sees everything; another partner's site, node and token are `NotFound`; utilization figures; partner and admin mutations produce exactly the expected audit rows (actor, action, target), with payload, filters and pagination; 7 role checks (a customer calling Admin or Partner gets `PermissionDenied`); quarantine and unquarantine with the node connected and not; force terminate; admin filters; login failures, cookie attributes, GetMe and an Admin call with the cookie, a forged cookie, logout, an expired session, and that only the token hash is stored.
 
-#### ☐ P3.9 — `kctl` CLI
+#### ☑ P3.9 — `kctl` CLI
 - **Goal:** The demo driver and the first client of the API.
 - **Deliverables:** `cmd/kctl` (cobra, generated Connect client): `login` (API key → `~/.config/kctl/config.yaml`, `--server`), `offers [--accel nvidia] [--arch arm64] …`, `images`, `create --offer … --image … --ssh-key … [--port 8080] [--user-data file]`, `get <id>` (phase, node, connection, running minutes, estimated cost), `list`, `watch <id>` (streams phase changes until terminal or `RUNNING`), `terminate <id>`, `ssh <id>` (prints, or with `--exec` runs, `ssh -p <port> ubuntu@<host>`), `nodes` (partner/operator), `enroll-token --site demo`, `usage [--instance id]`; `--output json` everywhere.
 - **Acceptance criteria:** `hack/kctl-smoke.sh` against the simulator: create → watch → `RUNNING` → `ssh` prints a valid command → terminate → `TERMINATED`. `--output json` parses with `jq`. API errors print as one line with the Connect code.
 - **Depends on:** P3.8
 - **Decisions required:** ADR-0005
 - **Size:** S
+- **As built (2026-11-08):** `internal/kctl` (cobra; `cmd/kctl` is a thin main) uses the generated Connect clients over HTTP/1.1. Server streaming works there, so `watch` needs no h2c. `login --server URL [--api-key K | stdin]` checks the key with GetMe before writing `$XDG_CONFIG_HOME/kctl/config.yaml` (default `~/.config/kctl/config.yaml`, mode 0600); `--server`, `--api-key` and `--config` can also come from `KCTL_SERVER`, `KCTL_API_KEY` and `KCTL_CONFIG`. Commands: `login`, `whoami`, `offers [--accel nvidia|none] [--model] [--arch] [--region] [--min-vcpu] [--min-ram] [--all]`, `images [--offer] [--arch]`, `create --offer <id|shape> --image <id|name[:version]> [--arch] [--ssh-key <account key id|file|key>]… [--port 8080|53/udp]… [--user-data file] [--name] [--wait]`, `get`, `list [--all]`, `watch [--until-terminal]`, `terminate [--wait]`, `ssh [--exec] [-i key] [-- args]`, `nodes [--site]`, `enroll-token --site`, and `usage [--instance]` (needs P3.11). Details: `create` defaults to `~/.ssh/id_*.pub`, generates an idempotency key, and retries `Unavailable` with it; `watch` exits 2 when the instance ends FAILED or LOST. `--output json` prints protojson, one object per line (watch is a stream of lines). Errors print as one line, `kctl: <connect code>: <message>`. `kctl ssh` refuses server-supplied users or hosts that could read as ssh options, and ends options with `--`. For `ssh` to print anything, the agent must report port mappings, so the port allocator from P2.7 was built here: `internal/agent/access`, wired as the reconciler's `Prepare` / `Deleted` / `Retain` hooks. The full lifecycle test now checks `ssh -p 40000 ubuntu@<advertise address>`. `hack/kctl-smoke.sh` passed against a live stack (`serve`, seeds, an arm64 mock agent): create → watch PENDING → SCHEDULED → PROVISIONING → RUNNING, `ssh -p 40000 ubuntu@127.0.0.1`, `get`, terminate → TERMINATED, JSON through `jq`, and a one-line `not_found`. (A first run requested amd64 on the arm64-only node and correctly ended `FAILED(no_capacity)` after 60 s; the script documents `KDK_ARCH`.) The real simulator replaces the single agent in P3.10. Tests run kctl in-process against the API: login and config mode, one-line errors, the full lifecycle with watch and ssh, the hostile ssh endpoint, and watch ending FAILED with exit 2 and JSON lines.
 
 #### ☐ P3.10 — Fleet simulator and chaos tests
 - **Goal:** Confidence in the control loop at scale and under faults before touching hardware.
@@ -644,12 +646,12 @@ Not scheduled. Collected so nothing is forgotten.
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
-| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+1 partly) |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 8 |
+| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+2 partly) |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 9 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **14 (+2 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **15 (+3 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
