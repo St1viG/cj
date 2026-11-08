@@ -1,0 +1,31 @@
+# kondukter-agent on a Fedora node (roadmap P2.9). install-agent.sh puts the
+# binary in /usr/local/bin and the config in /etc/kondukter-agent/.
+[Unit]
+Description=Kondukter node agent
+Documentation=https://github.com/St1viG/cj/blob/main/deploy/nodes/README.md
+Wants=network-online.target
+# libvirtd.service is the monolithic daemon; Fedora's default is the modular
+# virtqemud/virtnetworkd. Ordering after a unit that does not exist is a no-op.
+After=network-online.target tailscaled.service libvirtd.service virtqemud.socket virtnetworkd.socket
+
+[Service]
+Type=exec
+# Root: the agent owns the inet kdk nftables table and libvirt's system URI.
+User=root
+ExecStart=/usr/local/bin/kondukter-agent run --config /etc/kondukter-agent/config.yaml
+# /var/lib/kondukter-agent: the store (state.db), image cache and disks.
+StateDirectory=kondukter-agent
+StateDirectoryMode=0700
+# /run/kondukter-agent: the rendered kdk.nft.
+RuntimeDirectory=kondukter-agent
+RuntimeDirectoryMode=0750
+Restart=always
+# VMs keep running while the agent is down, and a restart reconciles. The
+# delay is long enough that a killed agent shows as UNREACHABLE (three missed
+# heartbeats, 30-45 s) before it comes back, as the failure drill expects.
+RestartSec=60
+# SIGTERM stops the agent cleanly and leaves the VMs running.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
