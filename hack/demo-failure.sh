@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# demo-failure.sh — roadmap P4.6: the three failure drills, run on MAC-P
-# against the demo stack (`make demo-up`). Each one drives the failure,
-# watches the API, and checks the acceptance criteria; it exits non-zero if
-# one fails. The narrative is in docs/DEMO.md ("Failure drills").
+# demo-failure.sh — roadmap P4.6: the three failure drills, run against the
+# demo stack: on the Fedora box that runs it (single-box demo, ADR-0026; see
+# the DRILL_CP_* and DRILL_PSQL overrides), or against the compose stack
+# (`make demo-up`). Each one drives the failure, watches the API, and checks
+# the acceptance criteria; it exits non-zero if one fails. The narrative is in docs/DEMO.md ("Failure drills").
 #
 #   hack/demo-failure.sh agent-kill INSTANCE
 #       Drill 1. With INSTANCE RUNNING, SIGKILL the agent on its node; expect
@@ -10,15 +11,17 @@
 #       with instance_events showing exactly RUNNING → UNREACHABLE → RUNNING.
 #       An SSH session to the VM stays open throughout and must not drop.
 #   hack/demo-failure.sh cp-outage [SECONDS]
-#       Drill 2. Stop the kondukter container for SECONDS (default 120),
+#       Drill 2. Stop the control plane for SECONDS (default 120),
 #       probing SSH to the VMs meanwhile, then start it; expect the same nodes
 #       READY, the same instances in the same phases on the same nodes, no
 #       instance_events during or after the outage, and metered usage with no
 #       gaps that matches wall-clock running time within a minute.
 #   hack/demo-failure.sh drain NODE
-#       Drill 3. Drain NODE as the partner, create a cpu-2x2 as the customer,
-#       expect it RUNNING on another node of NODE's architecture; terminate
-#       it and undrain NODE.
+#       Drill 3. Drain NODE as the partner, create a cpu-2x2 as the customer.
+#       With another READY node of NODE's architecture, expect it RUNNING
+#       there; terminate it and undrain NODE. With none (the single box),
+#       expect it to stay PENDING for DRILL_HOLD seconds, then undrain NODE
+#       and expect it RUNNING on NODE; terminate it.
 #   hack/demo-failure.sh events INSTANCE
 #       Print the instance's phase transitions.
 #
@@ -38,7 +41,20 @@
 #   SETTLE         drill 2: seconds to watch after the restart (default 120,
 #                  past the watchdog's 95 s restart grace)
 #   DRILL_TIMEOUT  seconds to wait for each expected change (default 300)
+#   DRILL_HOLD     drill 3 on a single node: seconds the instance must stay
+#                  PENDING while NODE is drained (default 15)
 #   KEEP=1         drill 3: keep the new instance and leave NODE drained
+#   DRILL_CP_STOP, DRILL_CP_START
+#                  drill 2: the commands that stop and start the control
+#                  plane (default: docker compose stop / up for the compose
+#                  stack). On the box: "sudo systemctl stop kondukter" and
+#                  "sudo systemctl start kondukter". After the start the script
+#                  waits up to 60 s for /healthz.
+#   DRILL_PSQL     how to run psql (reads the query on stdin; extra arguments
+#                  are appended). Default: in the compose stack's postgres
+#                  container. On the box: "docker exec -i kondukter-postgres-1
+#                  psql -q -X -v ON_ERROR_STOP=1 -U kondukter -d kondukter".
+#                  Times then print in the database's zone.
 #   DEMO_ENV_FILE, COMPOSE_PROJECT_NAME, KONDUKTER_API_PORT
 #                  as for demo.sh
 set -euo pipefail
@@ -74,6 +90,11 @@ signin() {
 # extra arguments go to psql (e.g. -v id=…). Times print in this Mac's zone.
 tz=$(readlink /etc/localtime 2>/dev/null | sed -n 's#.*/zoneinfo/##p')
 sql() {
+	if [ -n "${DRILL_PSQL:-}" ]; then
+		# shellcheck disable=SC2086 # the command is a word list on purpose
+		${DRILL_PSQL} "$@"
+		return
+	fi
 	# shellcheck disable=SC2016 # expanded by the container's shell
 	compose exec -T -e PGTZ="${tz:-UTC}" postgres sh -c 'psql -q -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' psql "$@"
 }
@@ -252,7 +273,7 @@ cmd_cp_outage() {
 
 	t_stop=$(now)
 	log "stopping kondukter for $secs s"
-	compose stop kondukter
+	if [ -n "${DRILL_CP_STOP:-}" ]; then ${DRILL_CP_STOP}; else compose stop kondukter; fi
 	curl -s -o /dev/null -m 2 "$api/" && die "the API still answers after the stop"
 	ok "the API is down"
 	sleep $((secs < 20 ? secs / 2 : 10))
@@ -270,7 +291,13 @@ cmd_cp_outage() {
 
 	t_start=$(now)
 	log "starting kondukter after $((t_start - t_stop)) s"
-	compose up -d --no-build --no-recreate --wait kondukter
+	if [ -n "${DRILL_CP_START:-}" ]; then
+		${DRILL_CP_START}
+		for _ in $(seq 1 60); do curl -fs -m2 "$api/healthz" >/dev/null && break; sleep 1; done
+		curl -fs -m2 "$api/healthz" >/dev/null || die "the API did not come back within 60 s of the start"
+	else
+		compose up -d --no-build --no-recreate --wait kondukter
+	fi
 	t_up=$(now)
 	ok "kondukter healthy $((t_up - t_start)) s after the start"
 	signin operator
@@ -356,7 +383,7 @@ cmd_cp_outage() {
 # Drill 3 ---------------------------------------------------------------
 
 cmd_drain() {
-	local node nid host arch others offer image key id inst phase last='' t0 el on
+	local node nid host arch others offer image key id inst phase last='' t0 el on single=0 hold t_h
 	signin operator partner customer
 	node=$(find_node "${1:?usage: $0 drain NODE}")
 	nid=$(jq -r .id <<<"$node")
@@ -364,8 +391,12 @@ cmd_drain() {
 	arch=$(jq -r .arch <<<"$node")
 	[ "$(jq -r .status <<<"$node")" = NODE_STATUS_READY ] || die "$host is $(jq -r .status <<<"$node" | short), not READY"
 	others=$(nodes | jq -r --arg id "$nid" --arg a "$arch" '[.nodes[]? | select(.id != $id and .arch == $a and .status == "NODE_STATUS_READY") | .hostname] | join(", ")')
-	[ -n "$others" ] || die "no other READY $arch node to take the instance"
-	log "drill 3: draining $host ($arch); other READY $arch node(s): $others"
+	if [ -z "$others" ]; then
+		single=1
+		log "drill 3: draining $host ($arch), the only READY $arch node: a new instance has nowhere to go until it is undrained"
+	else
+		log "drill 3: draining $host ($arch); other READY $arch node(s): $others"
+	fi
 
 	local st
 	st=$(as partner PartnerService/DrainNode "$(jq -nc --arg id "$nid" --arg k "drill-drain-$nid-$(now)" \
@@ -394,6 +425,22 @@ cmd_drain() {
 		'{offerId: $o, imageId: $i, sshPublicKeys: [$k | rtrimstr("\n")], name: $n, idempotencyKey: $idem}')" | jq -c .instance)
 	id=$(jq -r .id <<<"$inst")
 	log "created $id ($(jq -r .name <<<"$inst"), ${DRILL_OFFER:-cpu-2x2})"
+	if [ "$single" = 1 ]; then
+		hold=${DRILL_HOLD:-15}
+		t_h=$(now)
+		phase=INSTANCE_PHASE_PENDING
+		while [ $(($(now) - t_h)) -lt "$hold" ]; do
+			phase=$(as customer InstanceService/GetInstance "$(jq -nc --arg id "$id" '{id: $id}')" | jq -r .instance.phase)
+			[ "$phase" = INSTANCE_PHASE_PENDING ] || break
+			sleep 2
+		done
+		if [ "$phase" = INSTANCE_PHASE_PENDING ]; then ok "the instance stayed PENDING for $hold s while $host was drained"; else bad "the instance left PENDING (now $(short <<<"$phase")) while $host was drained"; fi
+		st=$(as partner PartnerService/UndrainNode "$(jq -nc --arg id "$nid" --arg k "drill-undrain-$nid-$(now)" \
+			'{nodeId: $id, idempotencyKey: $k}')" | jq -r .node.status)
+		if [ "$st" = NODE_STATUS_READY ]; then ok "undrained $host: READY"; else bad "undrained $host, but it is $(short <<<"$st")"; fi
+		t0=$(now)
+		last=''
+	fi
 	while :; do
 		el=$(($(now) - t0))
 		inst=$(as customer InstanceService/GetInstance "$(jq -nc --arg id "$id" '{id: $id}')" | jq -c .instance)
@@ -410,11 +457,17 @@ cmd_drain() {
 	done
 	on=$(nodes | jq -r --arg id "$(jq -r .nodeId <<<"$inst")" '.nodes[]? | select(.id == $id) | .hostname')
 	echo
-	if [ "$(jq -r .nodeId <<<"$inst")" != "$nid" ]; then ok "RUNNING on $on after $el s, not on the drained $host"; else bad "RUNNING on the drained node $host"; fi
+	if [ "$single" = 1 ]; then
+		if [ "$(jq -r .nodeId <<<"$inst")" = "$nid" ]; then ok "RUNNING on $on $el s after the undrain"; else bad "RUNNING on $on, not on $host"; fi
+	elif [ "$(jq -r .nodeId <<<"$inst")" != "$nid" ]; then ok "RUNNING on $on after $el s, not on the drained $host"; else bad "RUNNING on the drained node $host"; fi
 	[ -z "$(jq -r '.connection.sshCommand // ""' <<<"$inst")" ] || log "connect: $(jq -r .connection.sshCommand <<<"$inst")"
 
 	if [ "${KEEP:-}" = 1 ]; then
-		log "KEEP=1: leaving $id RUNNING and $host drained; \`make demo-reset\` undoes both"
+		if [ "$single" = 1 ]; then
+			log "KEEP=1: leaving $id RUNNING; $host is already undrained"
+		else
+			log "KEEP=1: leaving $id RUNNING and $host drained; \`make demo-reset\` undoes both"
+		fi
 	else
 		as customer InstanceService/TerminateInstance "$(jq -nc --arg id "$id" --arg k "drill-terminate-$id" '{id: $id, idempotencyKey: $k}')" >/dev/null
 		t0=$(now)
@@ -424,9 +477,11 @@ cmd_drain() {
 			sleep 2
 		done
 		ok "terminated $id in $(($(now) - t0)) s"
-		st=$(as partner PartnerService/UndrainNode "$(jq -nc --arg id "$nid" --arg k "drill-undrain-$nid-$(now)" \
-			'{nodeId: $id, idempotencyKey: $k}')" | jq -r .node.status)
-		if [ "$st" = NODE_STATUS_READY ]; then ok "undrained $host: READY"; else bad "undrained $host, but it is $(short <<<"$st")"; fi
+		if [ "$single" = 0 ]; then
+			st=$(as partner PartnerService/UndrainNode "$(jq -nc --arg id "$nid" --arg k "drill-undrain-$nid-$(now)" \
+				'{nodeId: $id, idempotencyKey: $k}')" | jq -r .node.status)
+			if [ "$st" = NODE_STATUS_READY ]; then ok "undrained $host: READY"; else bad "undrained $host, but it is $(short <<<"$st")"; fi
+		fi
 	fi
 	echo
 	[ "$fail" = 0 ] || die "drill 3 failed"
