@@ -1,0 +1,16 @@
+; kondukter-agent on SELinux hosts (roadmap P2.9, spike S1 finding 1).
+;
+; libvirt's daemons identify each client by reading /proc/<pid>/stat. The
+; agent runs as a systemd service in unconfined_service_t, which the
+; confined daemons may not look into, so virtnetworkd refuses it with
+; "Cannot find start time for pid N" (virtqemud only logs the same denial,
+; because Fedora ships that domain permissive; the rule keeps it working
+; once it is enforcing). These rules allow exactly what was denied: finding
+; the process's /proc directory and reading its stat file.
+;
+; install-agent.sh installs it with `semodule -i`; remove it with
+; `semodule -r kondukter-agent`.
+(allow virtnetworkd_t unconfined_service_t (dir (search)))
+(allow virtnetworkd_t unconfined_service_t (file (read open)))
+(allow virtqemud_t unconfined_service_t (dir (search)))
+(allow virtqemud_t unconfined_service_t (file (read open)))

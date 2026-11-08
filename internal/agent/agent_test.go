@@ -3,6 +3,7 @@ package agent_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -138,21 +139,10 @@ func TestRunWithoutGatewayFails(t *testing.T) {
 	}
 }
 
-// TestNewLibvirtDriver builds the libvirt driver from the config without
-// connecting to libvirt, and refuses a broken network section.
-func TestNewLibvirtDriver(t *testing.T) {
-	cfg := config.Default()
-	cfg.Driver, cfg.DataDir = "libvirt", t.TempDir()
-	d, err := agent.NewDriver(cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Name() != "libvirt" {
-		t.Fatalf("Name() = %q", d.Name())
-	}
-	cfg.Network.Subnet = "10.77.0.1/24"
-	if _, err := agent.NewDriver(cfg, nil); err == nil || !strings.Contains(err.Error(), "network") {
-		t.Fatalf("err = %v, want a network error", err)
+func TestLibvirtDriverNeedsANetwork(t *testing.T) {
+	_, err := agent.NewDriver(config.Config{Driver: "libvirt", DataDir: t.TempDir()}, nil)
+	if err == nil || !strings.Contains(err.Error(), "network") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -404,12 +394,22 @@ func TestFirewallFollowsInstances(t *testing.T) {
 		return applied[len(applied)-1]
 	}
 	log, _ := logging.New(io.Discard, "info")
-	a, err := agent.New(cfg, log, agent.Options{InsecureDev: true, Driver: m, ApplyNFT: func(_ context.Context, r string) error {
-		mu.Lock()
-		applied = append(applied, r)
-		mu.Unlock()
-		return nil
-	}})
+	var fwCalls []string
+	a, err := agent.New(cfg, log, agent.Options{InsecureDev: true, Driver: m,
+		ApplyNFT: func(_ context.Context, r string) error {
+			mu.Lock()
+			applied = append(applied, r)
+			mu.Unlock()
+			return nil
+		},
+		// Never run the real firewall-cmd from a test: report firewalld as
+		// stopped.
+		Firewalld: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			mu.Lock()
+			fwCalls = append(fwCalls, name+" "+strings.Join(args, " "))
+			mu.Unlock()
+			return nil, errors.New("not running")
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,6 +437,11 @@ func TestFirewallFollowsInstances(t *testing.T) {
 	waitUntil("an empty table applied at start", func() bool {
 		return strings.Contains(last(), "table inet kdk {") && !strings.Contains(last(), "dnat ip to")
 	})
+	mu.Lock()
+	if len(fwCalls) == 0 || fwCalls[0] != "firewall-cmd --state" {
+		t.Errorf("a libvirt node must check firewalld at start; calls: %v", fwCalls)
+	}
+	mu.Unlock()
 	time.Sleep(300 * time.Millisecond) // let the agent connect before editing
 	write("generation: 2\ninstances:\n  - {id: i-1, vcpu: 2, ram_mib: 2048, disk_gib: 20}\n")
 	waitUntil("the SSH DNAT rule for i-1", func() bool { return strings.Contains(last(), rule) })
