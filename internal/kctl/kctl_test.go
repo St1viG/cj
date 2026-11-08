@@ -295,3 +295,59 @@ func TestWatchFailedExitsTwo(t *testing.T) {
 		t.Fatalf("watch JSON line %q: %v", watchOut, err)
 	}
 }
+
+func TestDrainAndUndrain(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	partnerOrg, err := e.s.UpsertOrg(ctx, db.UpsertOrgParams{Name: "demo-dc", Kind: "partner", PartnerID: &e.f.Partner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partner, err := e.s.UpsertUser(ctx, db.UpsertUserParams{Email: "partner@demo.local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.AddMembership(ctx, db.AddMembershipParams{OrgID: partnerOrg.ID, UserID: partner.ID}); err != nil {
+		t.Fatal(err)
+	}
+	secret, prefix, hash := accounts.NewAPIKey()
+	if _, err := e.s.CreateAPIKey(ctx, db.CreateAPIKeyParams{OrgID: partnerOrg.ID, UserID: partner.ID, Name: "p", Prefix: prefix, SecretHash: hash}); err != nil {
+		t.Fatal(err)
+	}
+	e.key = secret
+	e.login(t)
+	status := func() db.NodeStatus {
+		n, _ := e.s.GetNode(ctx, e.node.ID)
+		return n.Status
+	}
+
+	// By hostname, twice: a second drain after an undrain is a new change.
+	for range 2 {
+		if out, errs, code := e.run(t, "drain", "mac-a", "--reason", "drill 3"); code != 0 || out != "mac-a DRAINING\n" {
+			t.Fatalf("drain = %d %q %q", code, out, errs)
+		}
+		if status() != db.NodeStatusDraining {
+			t.Fatalf("after drain: %s", status())
+		}
+		if out, errs, code := e.run(t, "undrain", e.node.ID.String()); code != 0 || out != "mac-a READY\n" {
+			t.Fatalf("undrain = %d %q %q", code, out, errs)
+		}
+		if status() != db.NodeStatusReady {
+			t.Fatalf("after undrain: %s", status())
+		}
+	}
+	if _, errs, code := e.run(t, "drain", "no-such-node"); code != 1 || !strings.Contains(errs, `no node "no-such-node"`) {
+		t.Fatalf("unknown node = %d %q", code, errs)
+	}
+	// Undraining a READY node is refused by the transition table.
+	if _, errs, code := e.run(t, "undrain", "mac-a"); code != 1 || !strings.HasPrefix(errs, "kctl: failed_precondition: ") {
+		t.Fatalf("undrain of a READY node = %d %q", code, errs)
+	}
+	out, _, code := e.run(t, "-o", "json", "drain", "mac-a")
+	var res struct {
+		Node struct{ Status string } `json:"node"`
+	}
+	if code != 0 || json.Unmarshal([]byte(out), &res) != nil || res.Node.Status != "NODE_STATUS_DRAINING" {
+		t.Fatalf("drain -o json = %d %q", code, out)
+	}
+}
