@@ -51,3 +51,4 @@ Positive, negative, follow-ups; roadmap items affected.
 | [0023](0023-demo-metering-no-money.md) | Demo metering: running time and estimated cost; no money | Accepted | D-08/D-22 demo scope |
 | [0024](0024-mtls-node-identity-deferred-rotation.md) | mTLS node identity; rotation, revocation, self-update deferred | Accepted | identity; D-24 deferred |
 | [0025](0025-mvp-scheduling-semantics.md) | Dedicated capacity only; no stop/start; several tenants per node | Accepted | D-04, D-11, D-27 |
+| [0026](0026-macs-out-of-scope.md) | The Macs are out of scope for the demo | Accepted | D-36 |

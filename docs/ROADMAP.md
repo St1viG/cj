@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 30 of 45 items** (about 25 of 35 estimated sessions) · 11 partly done · 4 not started. Updated with every commit that finishes an item.
+**Done: 31 of 42 in-scope items** (about 25 of 33 estimated sessions) · 8 partly done · 3 not started · 3 out of scope (the Macs, [ADR-0026](adr/0026-macs-out-of-scope.md)). Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -20,7 +20,7 @@
 - [x] P1.1 — S1: libvirt from pure Go on Fedora
 - [x] P1.2 — S2a: VFIO passthrough of the GTX 1060 (FED-D)
 - [ ] P1.3 — S2b: VFIO passthrough of the laptop RTX (FED-L)
-- [ ] P1.4 — S3: Lima `vz` on an 8 GB Mac · *partly done: spike run and findings written; SSH from another tailnet machine waits for a second Mac*
+- [-] P1.4 — S3: Lima `vz` on an 8 GB Mac · *out of scope ([ADR-0026](adr/0026-macs-out-of-scope.md)); what was done stays recorded below*
 - [ ] P1.5 — S4: gRPC bidi stream with mTLS through Tailscale · *partly done: reachability from FED-D measured; the 30-minute stream and the restart tests need an agent run on FED-D*
 - [x] P1.6 — S5: GPU guest image build
 - [ ] P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
@@ -31,10 +31,10 @@
 - [x] P2.3 — Mock driver and reconcile loop
 - [x] P2.4 — Inventory
 - [x] P2.5 — libvirt driver
-- [ ] P2.6 — Lima driver · *partly done: built and tested against real VMs on an 8 GB Mac; SSH from MAC-P over the tailnet waits for a second Mac*
+- [-] P2.6 — Lima driver · *out of scope ([ADR-0026](adr/0026-macs-out-of-scope.md)); what was done stays recorded below*
 - [x] P2.7 — Access module (port-map)
 - [x] P2.8 — Metering outbox and crash safety
-- [ ] P2.9 — Agent packaging · *partly done: built and checked in a Fedora systemd container; the installs on FED-D and MAC-A wait for those hosts and the owner's root install*
+- [x] P2.9 — Agent packaging
 
 **P3 — Kondukter v0**
 - [x] P3.1 — Schema, migrations, store layer
@@ -51,9 +51,9 @@
 
 **P4 — Real fleet end-to-end (CLI)**
 - [ ] P4.1 — Fedora GPU node bootstrap · *partly done: `bootstrap.sh --check` is written and run read-only on FED-D; the install half waits for the P1.7 decisions and a root session on the host*
-- [ ] P4.2 — Mac node bootstrap · *partly done: `bootstrap.sh --check` is written and run on the development Mac; the install half and the `pmset` part wait for a root session*
+- [-] P4.2 — Mac node bootstrap · *out of scope ([ADR-0026](adr/0026-macs-out-of-scope.md)); what was done stays recorded below*
 - [ ] P4.3 — Demo deployment of the control plane · *partly done: built and run on the development Mac; the checks from FED-D and on MAC-P wait for those hosts*
-- [ ] P4.4 — Enroll the fleet
+- [ ] P4.4 — Enroll the fleet · *partly done: FED-D is enrolled and `READY` with the GPU `ok`; `docs/DEMO_FLEET.md` is not written, and FED-L is not online*
 - [ ] P4.5 — Happy path on hardware · *partly done: `hack/demo-happy.sh` passes three runs in a row against mock agents on the development Mac; the runs on the real fleet wait for the hosts and the GPU image*
 - [ ] P4.6 — Failure path on hardware · *partly done: `hack/demo-failure.sh` and the drill text pass against mock agents on the development Mac; the runs on the real fleet wait for the hosts*
 
@@ -81,8 +81,8 @@
 
 | Tag | Machine | Role in the demo |
 |---|---|---|
-| **MAC-P** | Apple Silicon Mac, 24 GB | Presenter laptop. Runs the control plane (docker compose), `kctl`, the browser. |
-| **MAC-A**, **MAC-B** | Apple Silicon Macs, 8 GB each | CPU-only arm64 nodes (Lima `vz`), one 2 GiB VM each. |
+| **MAC-P** | Apple Silicon Mac, 24 GB | Presenter laptop: `kctl` and the browser, over the tailnet. The control plane runs on FED-D ([ADR-0026](adr/0026-macs-out-of-scope.md)); it ran here in the original plan. |
+| **MAC-A**, **MAC-B** | Apple Silicon Macs, 8 GB each | **Out of scope** ([ADR-0026](adr/0026-macs-out-of-scope.md)). Were CPU-only arm64 nodes (Lima `vz`), one 2 GiB VM each. |
 | **FED-D** | Remote Fedora desktop, GTX 1060 (Pascal) | GPU node: libvirt/QEMU + VFIO passthrough. Primary GPU story. |
 | **FED-L** | Fedora laptop, RTX (model TBD, hybrid graphics) | GPU node if spike S2b passes, otherwise CPU-only amd64 libvirt node. |
 
@@ -94,9 +94,9 @@ All five machines sit on one Tailscale tailnet; the control plane is addressed b
 
 ### 1.1 What the audience sees
 
-**Happy path.** Log in to the web app as a customer, browse offers (an arm64 CPU offer on the Macs, an NVIDIA GPU offer on the Fedora hosts), create a GPU instance with an SSH key, watch it go `PENDING → SCHEDULED → PROVISIONING → RUNNING` live, copy the SSH command, run `nvidia-smi` and a short llama.cpp prompt on the real GPU inside the VM, see usage minutes and estimated cost tick, terminate, see capacity return. The same flow from `kctl` for the terminal crowd.
+**Happy path.** Log in to the web app as a customer, browse offers (an amd64 CPU offer and an NVIDIA GPU offer, both on the Fedora hosts), create a GPU instance with an SSH key, watch it go `PENDING → SCHEDULED → PROVISIONING → RUNNING` live, copy the SSH command, run `nvidia-smi` and a short llama.cpp prompt on the real GPU inside the VM, see usage minutes and estimated cost tick, terminate, see capacity return. The same flow from `kctl` for the terminal crowd.
 
-**Failure path.** With a GPU instance running and an SSH session open: `kill -9` the agent on the GPU node → instance shows `UNREACHABLE` within 45 s → systemd restarts the agent → `RUNNING` again, SSH session never dropped. Then stop the control plane for two minutes: VMs keep serving, agents buffer usage, everything reconciles on restart with no duplicates. Then drain a Mac node and show placement moving to the other one.
+**Failure path.** With a GPU instance running and an SSH session open: `kill -9` the agent on the GPU node → instance shows `UNREACHABLE` within 45 s → systemd restarts the agent → `RUNNING` again, SSH session never dropped. Then stop the control plane for two minutes: VMs keep serving, agents buffer usage, everything reconciles on restart with no duplicates. Then drain the node and show that a new create is not placed on it.
 
 **Partner and operator views.** Partner sees its nodes, inventory, utilization and active-instance counts, never customer data; generates an enrollment token. Operator sees the whole fleet, quarantines a node, force-terminates, reads the audit log.
 
@@ -105,29 +105,20 @@ All five machines sit on one Tailscale tailnet; the control plane is addressed b
 ```mermaid
 flowchart LR
   subgraph TN["Tailscale tailnet"]
-    subgraph MACP["MAC-P · presenter (24 GB)"]
-      CP["Kondukter (compose)\nAPI :8080 · gateway mTLS :8443\nembedded web · image server :8081\nPostgreSQL"]
+    subgraph LAP["Presenter laptop"]
       CLI["kctl · browser"]
     end
-    subgraph MACA["MAC-A (8 GB)"]
-      AG1["kondukter-agent\nLima vz · arm64 CPU VM"]
-    end
-    subgraph MACB["MAC-B (8 GB)"]
-      AG2["kondukter-agent\nLima vz · arm64 CPU VM"]
-    end
-    subgraph FEDD["FED-D · Fedora desktop"]
+    subgraph FEDD["FED-D · Fedora desktop (control plane and GPU node)"]
+      CP["Kondukter (systemd)\nAPI :8080 · gateway mTLS :8443\nembedded web · image server :8081\nPostgreSQL (docker)"]
       AG3["kondukter-agent\nlibvirt/QEMU · VFIO GTX 1060"]
     end
     subgraph FEDL["FED-L · Fedora laptop"]
       AG4["kondukter-agent\nlibvirt/QEMU · VFIO RTX (if S2b passes)"]
     end
   end
-  AG1 -->|outbound gRPC bidi, mTLS| CP
-  AG2 -->|outbound gRPC bidi, mTLS| CP
-  AG3 -->|outbound gRPC bidi, mTLS| CP
-  AG4 -->|outbound gRPC bidi, mTLS| CP
+  AG3 -->|loopback gRPC bidi, mTLS| CP
+  AG4 -.->|"outbound gRPC bidi, mTLS (needs the gateway on the tailnet)"| CP
   CLI --> CP
-  CLI -.->|"ssh -p 4xxxx ubuntu@node-tailnet-ip"| AG1
   CLI -.->|"ssh -p 4xxxx ubuntu@node-tailnet-ip"| AG3
 ```
 
@@ -135,7 +126,6 @@ flowchart LR
 
 | Shape | vCPU | RAM | Disk | Accelerators | Arch / image | Lands on |
 |---|---|---|---|---|---|---|
-| `cpu-2x2` | 2 | 2 GiB | 20 GiB | — | arm64 `ubuntu-cpu` | MAC-A, MAC-B |
 | `cpu-2x2` | 2 | 2 GiB | 20 GiB | — | amd64 `ubuntu-cpu` | FED-L (if CPU-only), FED-D spare capacity |
 | `gpu-gtx1060-1x` | 4 | 8 GiB | 40 GiB | 1× nvidia GTX 1060 | amd64 `ubuntu-gpu-pascal` | FED-D |
 | `gpu-rtx-1x` (name after S2b) | 4 | 8 GiB | 40 GiB | 1× nvidia RTX | amd64 `ubuntu-gpu` | FED-L (if S2b passes) |
@@ -146,7 +136,7 @@ Region `demo`, capacity class `dedicated`, prices in EUR cents per hour, chosen 
 
 - Go module path `github.com/St1viG/cj` (matches the git remote; rename is a one-line change).
 - GTX 1060 is Pascal: the guest needs the NVIDIA **580 driver branch with closed kernel modules and CUDA 12.x** (open modules and CUDA 13 dropped Pascal). If the RTX is Blackwell it needs open modules, so two GPU image variants may be required; spikes S2b and S5 decide. The GPU demo workload is **llama.cpp built with CUDA**, which runs on both, rather than the newest PyTorch.
-- 8 GB Macs host at most one 2 GiB VM each; the agent reserves 4 GiB for macOS.
+- (Dropped with the Macs, [ADR-0026](adr/0026-macs-out-of-scope.md): 8 GB Macs hosted at most one 2 GiB VM each.)
 - The owner designs the web UI. P5 delivers page skeletons and contents only (see the P5 preamble).
 
 ### 1.5 Explicitly out of the demo
@@ -189,13 +179,14 @@ Status: **Accepted** (ADR written, owner confirmed 2026-11-08) · **Proposed** (
 | D-26 | Wipe / GPU health gate | Deferred | Demo deletes disks; no GPU validation. |
 | D-27 | Multi-tenancy per node | Accepted | Several customers per node, one tenant per GPU ([ADR-0025](adr/0025-mvp-scheduling-semantics.md)). |
 | D-28 | Confidential computing | Deferred | |
-| D-29 | Demo hardware | Accepted | 3 Macs + FED-D + FED-L ([ADR-0012](adr/0012-demo-fleet-real-nvidia-passthrough.md)). |
+| D-29 | Demo hardware | Accepted | 3 Macs + FED-D + FED-L; the Macs left the demo at D-36 ([ADR-0012](adr/0012-demo-fleet-real-nvidia-passthrough.md)). |
 | D-30 | Demo GPU story | Accepted | Real NVIDIA passthrough ([ADR-0012](adr/0012-demo-fleet-real-nvidia-passthrough.md)). Mock driver for tests/simulator/stage fallback. |
 | D-31 | Mac node mode | Accepted | CPU VM via Lima `vz`; krunkit dropped ([ADR-0012](adr/0012-demo-fleet-real-nvidia-passthrough.md)). |
 | D-32 | Where Kondukter runs | Accepted | docker compose on MAC-P over Tailscale ([ADR-0014](adr/0014-control-plane-compose-on-presenter-mac.md)). |
 | D-33 | macOS driver tool | Accepted | Lima ([ADR-0020](adr/0020-lima-macos-driver.md)). |
 | D-34 | Linux host OS | Accepted (demo) | Fedora, because that is what the hardware runs ([ADR-0013](adr/0013-fedora-demo-host-os.md)); production OS Open. |
 | D-35 | Linux GPU test hardware | Accepted | FED-D and FED-L ([ADR-0012](adr/0012-demo-fleet-real-nvidia-passthrough.md)). |
+| D-36 | Macs in the demo | Accepted | Out of scope; the control plane runs on the Fedora node ([ADR-0026](adr/0026-macs-out-of-scope.md)). |
 | — | Node identity | Accepted | mTLS at enrollment; rotation/revocation deferred ([ADR-0024](adr/0024-mtls-node-identity-deferred-rotation.md)). |
 | — | Demo surface | Accepted | `kctl` + full web app, skeleton and contents only (P5). |
 
@@ -274,7 +265,8 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** D-29, D-30, D-35 (ADR-0012)
 - **Size:** M
 
-#### ◐ P1.4 — S3: Lima `vz` on an 8 GB Mac
+#### ⊘ P1.4 — S3: Lima `vz` on an 8 GB Mac
+- **Out of scope (2026-11-08, [ADR-0026](adr/0026-macs-out-of-scope.md)):** the Macs are no longer part of the demo. The spike was run and its findings are written (`docs/spikes/S3-lima-vz-8gb-mac.md`); the open points below (SSH from a second machine, the isolation gap) are dropped.
 - **Goal:** Confirm Lima can be driven non-interactively as the macOS driver within the 8 GB budget.
 - **Deliverables:** `docs/spikes/S3-lima-vz-8gb-mac.md`; `hack/s3/kdk.yaml` Lima template: `vmType: vz`, arm64 Ubuntu 24.04 cloud image by URL + digest, `cpus: 2`, `memory: 2GiB`, `disk: 20GiB`, no mounts, containerd disabled, a `provision` script (mode `system`) appending a customer public key to the `ubuntu` user's `authorized_keys`, `portForwards: [{guestPort: 22, hostPort: 40001, hostIP: "0.0.0.0"}]`. Commands exercised on MAC-A: `limactl create --name kdk-test --tty=false`, `limactl start`, `limactl list --json`, `limactl stop`, `limactl delete --force`.
 - **Acceptance criteria:** From MAC-P, `ssh -p 40001 ubuntu@<MAC-A tailnet ip>` works with the customer key; the findings list the `limactl list --json` fields used to derive `Observed` (status, name, ports); cold (image download) and cached create-to-SSH times recorded; `kill -9` of the Lima hostagent then `limactl start` recovers the same VM, or the findings say what breaks; memory pressure with one 2 GiB VM on 8 GB judged acceptable.
@@ -308,7 +300,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 #### ☐ P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
 - **Goal:** Freeze what P2–P4 build against.
 - **Deliverables:** ADR-0012 updated with each host's role, exact GPU models, RAM and CPU; ADR-0019 set to Accepted, or replaced by a cgo-binding ADR; ADR-0016 amended with the firewalld approach from S1; ADR-0015 amended with the image variant list; §1.3 of this file finalized; items P2.5, P2.7, P3.4, P4.1 edited to match.
-- **Acceptance criteria:** No item in P2–P4 references an open question; §1.3 lists at least `cpu-2x2` (arm64 and amd64) and one GPU shape per GPU node.
+- **Acceptance criteria:** No item in P2–P4 references an open question; §1.3 lists at least `cpu-2x2` (amd64) and one GPU shape per GPU node.
 - **Depends on:** P1.1–P1.6
 - **Decisions required:** D-20, D-29, D-30, D-31, D-34, D-35
 - **Size:** S
@@ -365,7 +357,8 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Two implementations, one kept (2026-11-08):** a second libvirt driver, built on a Mac before S1 and never run against a real libvirtd, had landed on `main` as `ec7c32a` while this FED-D driver was written. The owner chose the FED-D driver, so it replaced the Mac-built one when the branches were merged. The Mac-built code stays in git history at `ec7c32a` (its per-package notes are not repeated here). It dialed `/run/libvirt/libvirt-sock` (virtproxyd), which FED-D does not have: Fedora's modular daemons use `virtqemud` and `virtnetworkd`, two sockets.
 - **As built (2026-11-08):** `internal/agent/driver/libvirt`, on FED-D with the spike S1 and S2a setup. Two go-libvirt connections (the qemu and network daemons are separate on Fedora), reconnecting. An image that is not cached is fetched in the background, as in the Lima driver, and the driver fires an event when the create ends; a cached one is created inline. A failed create removes its files and domain. A stopped domain is started again with its disk. `Delete` leaves no domain, overlay or seed ISO; the NVRAM is removed by the undefine flag, and libvirt refuses that undefine if the NVRAM stays, which is the check, since `/var/lib/libvirt/qemu/nvram` is root-only. GPUs come from the inventory: the accelerator and its IOMMU-group companions become `<hostdev>` entries, and an unhealthy or unknown device is `ErrUnsupported`. Integration tests (`-tags libvirt`, see the file header): lifecycle with SSH into the guest, running after 12–16 s; GPU, where a flattened copy of the S2a guest (driver and CUDA installed) runs `nvidia-smi` on the GTX 1060; a hand-made `kdk-` domain without the marker is never listed or touched. Not part of the driver, still open: the `kdk-br0` firewalld zone and `kdk-egress` policy (P2.7), the SELinux access for `unconfined_service_t` (P2.9), and `data_dir` having mode `o+x` for QEMU, which the driver checks at start and the installer must set (P2.9).
 
-#### ◐ P2.6 — Lima driver
+#### ⊘ P2.6 — Lima driver
+- **Out of scope (2026-11-08, [ADR-0026](adr/0026-macs-out-of-scope.md)):** the Lima driver is built and tested against real VMs on an 8 GB Mac, and stays in the tree with its tests. No further work is planned; the open point below (SSH from MAC-P) is dropped.
 - **Goal:** Real arm64 VMs on the Macs via `limactl`.
 - **Deliverables:** `internal/agent/driver/lima`: template rendering from `InstanceSpec` (vz, cpus, memory, disk, image URL + digest from `ImageRef`, provision script injecting SSH keys and optional user-data, `portForwards` from the access module, name `kdk-<id>`); `limactl create --tty=false`, `start`, `stop`, `delete --force`, `list --json`; ownership = name prefix plus a marker file in the instance directory; Lima status → `Observed` phase mapping; one `limactl` mutation at a time per host.
 - **Acceptance criteria:** Integration test on MAC-A (build tag `lima`): `Ensure` twice idempotent; `Delete` twice idempotent; SSH from MAC-P through the forwarded port with the spec's key; a manually created non-`kdk-` Lima VM is never listed or touched; cached-image create-to-SSH time recorded (target ≤ 90 s).
@@ -420,7 +413,8 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
   **Metering across a kill (`METER=1`, two trials):** the agent was `SIGKILL`ed for 40 s while the VM ran, across a period boundary. The stub received each minute once and with no gap: 06:50–06:54Z in trial 7 and 06:56–06:59Z in trial 8. The minutes missed while the agent was down were backfilled at the first boundary after the restart. The VM kept running throughout. In trial 7 the first record, for the partial minute of the boot, carried 0 s, because `StartedAt` fell under a second before the boundary.
 
-#### ◐ P2.9 — Agent packaging
+#### ☑ P2.9 — Agent packaging
+- **Done (2026-11-08):** the criteria hold on FED-D (see "Installed on FED-D" below). The `launchctl` criterion for MAC-A is dropped with the Macs ([ADR-0026](adr/0026-macs-out-of-scope.md)); the macOS plist and the install script's Mac path stay in the tree, untested on a Mac node.
 - **As built so far (2026-11-08):**
   - **Build:** `make agent-dist` cross-compiles to `bin/kondukter-agent-<os>-<arch>` for `AGENT_PLATFORMS` (default `linux/amd64 darwin/arm64`). `file` reports the Linux binary as "ELF 64-bit LSB executable, x86-64 … statically linked". `kondukter-agent version` prints the `git describe` version, e.g. `c74263e-dirty (linux/amd64, go1.27.3)`. That run was under emulation on the 8 GB development Mac.
   - **Fedora unit:** `deploy/nodes/fedora/kondukter-agent.service` runs the agent as root with `Restart=always`. It orders after `libvirtd.service` and also after Fedora's modular `virtqemud`/`virtnetworkd` sockets. It sets `StateDirectory` and `RuntimeDirectory` (`/run/kondukter-agent` for `kdk.nft`).
@@ -439,9 +433,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - `systemctl stop` ended with `Result=success`, exit 0, and no ERROR lines.
   - **Checked on the 8 GB development Mac (MAC-A class):** a macOS `DESTDIR` dry run gave the expected file layout and root commands. `plutil -lint` passes.
 - **Installed on FED-D (2026-11-08), with the real control plane on that box (Postgres in docker, `kondukter serve`) and a one-time token from `kondukter token create`:** `install-agent.sh` enrolled the node and started the service; `systemctl is-active kondukter-agent` is `active`, the node is `ready` in the control plane with the GTX 1060 `ok`, and the stream is up over mTLS (no `--insecure-dev`). Two bugs only a real install could show: the unit's `StateDirectoryMode=0700` and the installer's `chmod 0700` of the data dir both stop QEMU (another user) from reaching the disks, so the libvirt driver refused to start; both are now `0711` (others can traverse, not list; `state.db` stays `0600`). And the SELinux denial from spike S1 would have hit the service, which runs as `unconfined_service_t`: `deploy/nodes/fedora/kondukter-agent.cil`, installed by the script with `semodule -i`, allows `virtnetworkd_t` and `virtqemud_t` to search and read the agent's `/proc/<pid>`, and replaces the `semanage permissive` workaround; with the workaround removed, libvirt's network daemon accepts the agent's domain and the journal shows no new denial. Failure drill (Drill 1 of P4.6 in miniature): `kill -9` of the agent, the node `UNREACHABLE` after 34 s, systemd restarts the service at 60 s, the node `READY` again 4 s later. Masking the sleep targets (the NVIDIA resume crash from S1) is host-wide, not the agent's business, and is left to the bootstrap script (P4.1).
-- **Open:**
-  - `launchctl print system/io.kondukter.agent` on MAC-A, which needs the owner to run the root install that creates `_kondukter`.
-  - Also on MAC-A: whether `vz` VMs start from the LaunchDaemon's user context, and whether they survive a launchd restart.
+- **Dropped with the Macs ([ADR-0026](adr/0026-macs-out-of-scope.md)):** `launchctl print system/io.kondukter.agent` on MAC-A, and whether `vz` VMs start from the LaunchDaemon's user context and survive a launchd restart.
 - **Goal:** Installable agent on Fedora and macOS.
 - **Deliverables:** `make agent-dist` cross-compiling with `CGO_ENABLED=0` for `linux/amd64` and `darwin/arm64`, version from `git describe`; `deploy/nodes/fedora/kondukter-agent.service` (`Restart=always`, `After=libvirtd.service`, root, `StateDirectory=kondukter-agent`); `deploy/nodes/macos/io.kondukter.agent.plist` (LaunchDaemon, `KeepAlive`, log paths); `deploy/nodes/install-agent.sh` (copy binary, write config template, enable service).
 - **Note (from P2.6):** Lima refuses to run as root, so the LaunchDaemon sets `UserName` to a dedicated regular user, whose short home keeps `~/.lima` within the 36-byte `LIMA_HOME` limit (ADR-0020 amendment). The data dir must be writable by that user.
@@ -571,7 +563,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 ### P4 — Real fleet end-to-end (CLI)
 
-**Exit criterion:** SPEC §3.2 happy path and failure path pass on MAC-A, MAC-B, FED-D and FED-L driven by `kctl`, three times in a row from `make demo-reset`.
+**Exit criterion:** SPEC §3.2 happy path and failure path pass on FED-D (and FED-L if it is online) driven by `kctl`, three times in a row from `make demo-reset`.
 
 #### ◐ P4.1 — Fedora GPU node bootstrap
 - **As built so far (2026-11-08):** `deploy/nodes/fedora/bootstrap.sh --check` and `host.env.example`.
@@ -589,7 +581,8 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0012, ADR-0013, ADR-0016
 - **Size:** M
 
-#### ◐ P4.2 — Mac node bootstrap
+#### ⊘ P4.2 — Mac node bootstrap
+- **Out of scope (2026-11-08, [ADR-0026](adr/0026-macs-out-of-scope.md)):** `deploy/nodes/macos/bootstrap.sh --check` is written and stays, but the install half and the acceptance run on MAC-A and MAC-B are dropped.
 - **As built so far (2026-11-08):** `deploy/nodes/macos/bootstrap.sh --check`.
   - **What it does:** it changes nothing and needs no root. It prints ok, warn, skip or FAIL for Apple Silicon and memory, Lima (installed, at least the S3 version 2.3.0, able to run), the agent (binary, the `_kondukter` user, the LaunchDaemon, the config's driver and gateway, the log's age), Tailscale and whether the gateway's name resolves, and AC power and sleep. Each FAIL carries a `fix:` line. It runs on the Mac, or from another machine with `ssh <mac> 'bash -s -- --check' < deploy/nodes/macos/bootstrap.sh`.
   - **Run on the development Mac** (an 8 GB M1 on macOS 26.6.2, Lima 2.3.0, Tailscale running, on AC power, `SleepDisabled` set): 6 ok, 3 warn, 4 skip, 3 FAIL. The FAILs are that the agent, its service user and its LaunchDaemon are not installed. The warns are 8 GiB of RAM, 11 GB free against the 20 GB it wants, and no sleep assertion held.
@@ -652,12 +645,13 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0014
 - **Size:** S
 
-#### ☐ P4.4 — Enroll the fleet
-- **Goal:** All four nodes `READY` with correct inventory.
-- **Deliverables:** One token per node from `kctl enroll-token --site demo`; `kondukter-agent enroll` run on MAC-A, MAC-B, FED-D, FED-L; `docs/DEMO_FLEET.md` recording per node: hostname, tailnet IP, role, inventory as reported, cached images.
-- **Acceptance criteria:** `kctl nodes` lists four `READY` nodes; FED-D reports one `nvidia` accelerator model GTX 1060 with `health: ok`; FED-L reports its RTX, or none if CPU-only per P1.7; the Macs report arm64 and no accelerators; inventories show the pre-pulled image digests.
-- **Depends on:** P4.1, P4.2, P4.3
-- **Decisions required:** ADR-0012
+#### ◐ P4.4 — Enroll the fleet
+- **Goal:** Every node in the demo `READY` with correct inventory. After [ADR-0026](adr/0026-macs-out-of-scope.md) that is FED-D, and FED-L if it is online (or a CPU-only node, per P1.7).
+- **Deliverables:** One token per node from `kctl enroll-token --site demo` (or `kondukter token create` on the single box); `kondukter-agent enroll` run on FED-D and FED-L; `docs/DEMO_FLEET.md` recording per node: hostname, tailnet IP, role, inventory as reported, cached images.
+- **Acceptance criteria:** `kctl nodes` lists each node `READY`; FED-D reports one `nvidia` accelerator model GTX 1060 with `health: ok`; FED-L reports its RTX, or none if CPU-only per P1.7; inventories show the pre-pulled image digests.
+- **As built so far (2026-11-08):** FED-D was enrolled over mTLS by `install-agent.sh` against the control plane on the same box. The commit that did it (`00162c0`) records the node `READY` with the GPU `ok`, and `kill -9` of the agent giving `UNREACHABLE` after 34 s and `READY` again 4 s after the 60 s restart. The agent was seen `active` on FED-D over SSH and `/healthz` answered from another machine; `kctl nodes` has not been run against it.
+- **Depends on:** P4.1, P4.3
+- **Decisions required:** ADR-0012, ADR-0026
 - **Size:** S
 
 #### ◐ P4.5 — Happy path on hardware
@@ -681,8 +675,8 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - The checks inside the VMs and on the nodes were skipped, since the mocks have no VM.
   - **Left:** the three runs on the real fleet after `make demo-reset`, which wait for P4.4 and for the GPU image from P1.6.
 - **Goal:** The showcase's main storyline works end-to-end on real machines.
-- **Deliverables:** `hack/demo-happy.sh` using `kctl`: create `cpu-2x2` arm64 → lands on a Mac → `kctl ssh --exec … uname -m` prints `aarch64`; create the GPU offer → lands on FED-D → `nvidia-smi` and a short llama.cpp prompt with `-ngl 99` over SSH; `kctl get` shows minutes and cost growing; terminate both → `TERMINATED` and `kctl nodes` shows capacity back; a timing log per node type.
-- **Acceptance criteria:** The script passes three times in a row after `make demo-reset`; with cached images, create → `RUNNING` ≤ 90 s on the Macs and ≤ 120 s on FED-D; afterwards `virsh list --all`, `limactl list`, the overlay directories and `nft list table inet kdk` show nothing left; the GPU provisions successfully on the third run.
+- **Deliverables:** `hack/demo-happy.sh` using `kctl`: create `cpu-2x2` amd64 → lands on FED-D → `kctl ssh --exec … uname -m` prints `x86_64` (the arm64 case on a Mac is dropped, [ADR-0026](adr/0026-macs-out-of-scope.md)); create the GPU offer → lands on FED-D → `nvidia-smi` and a short llama.cpp prompt with `-ngl 99` over SSH; `kctl get` shows minutes and cost growing; terminate both → `TERMINATED` and `kctl nodes` shows capacity back; a timing log per node type.
+- **Acceptance criteria:** The script passes three times in a row after `make demo-reset`; with cached images, create → `RUNNING` ≤ 120 s on FED-D; afterwards `virsh list --all`, the overlay directories and `nft list table inet kdk` show nothing left; the GPU provisions successfully on the third run.
 - **Depends on:** P4.4
 - **Decisions required:** ADR-0012, ADR-0016
 - **Size:** M
@@ -877,13 +871,13 @@ Not scheduled. Collected so nothing is forgotten.
 | Phase | Items | M | S | Sessions | Done |
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 4 |
-| P1 Spikes | 7 | 4 | 3 | 5.5 | 3 (+2 partly) |
-| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 7 (+2 partly) |
+| P1 Spikes | 7 (6 in scope) | 4 | 3 | 5.5 | 3 (+1 partly) |
+| P2 Agent v0 | 9 (8 in scope) | 6 | 3 | 7.5 | 8 |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+5 partly) |
+| P4 Real fleet (CLI) | 6 (5 in scope) | 3 | 3 | 4.5 | 0 (+5 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 (+2 partly) |
-| **Total** | **45** | **25** | **20** | **35** | **30 (+11 partly)** |
+| **Total** | **45 (42 in scope)** | **25** | **20** | **35 (33 in scope)** | **31 (+8 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
