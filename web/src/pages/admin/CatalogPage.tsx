@@ -4,15 +4,17 @@ import { useApi } from "../../api/ApiProvider";
 import { keys } from "../../api/keys";
 import { type Column, DataTable } from "../../components/DataTable";
 import { QueryState } from "../../components/State";
+import { StatusChip } from "../../components/Status";
 import { capacityLabel, formatAccelerator, formatGiB, formatMiB, formatMoney } from "../../lib/format";
+import { PageTitle } from "../../components/PageTitle";
 
 const offerColumns: Column<Offer>[] = [
   { header: "Shape", cell: (o) => o.shape?.name ?? "—" },
   { header: "Accelerators", cell: (o) => formatAccelerator(o.shape) },
   { header: "Region", cell: (o) => o.region },
   { header: "Capacity class", cell: (o) => capacityLabel(o.capacityClass) },
-  { header: "Price per hour", cell: (o) => formatMoney(o.pricePerHour) },
-  { header: "For sale", cell: (o) => (o.active ? "yes" : "no") },
+  { header: "Price per hour", cell: (o) => formatMoney(o.pricePerHour), className: "m ink-h" },
+  { header: "For sale", cell: (o) => <StatusChip kind={o.active ? "run" : "end"}>{o.active ? "yes" : "no"}</StatusChip> },
   { header: "Architectures with an image", cell: (o) => o.archs.join(", ") || "none" },
   { header: "Id", cell: (o) => <code>{o.id}</code> },
 ];
@@ -32,7 +34,7 @@ const imageColumns: Column<Image>[] = [
   { header: "OS", cell: (i) => i.os },
   { header: "Accelerator stack", cell: (i) => i.accelStack || "none" },
   { header: "Accelerator models", cell: (i) => i.compatibleAcceleratorModels.join(", ") || "—" },
-  { header: "Status", cell: (i) => i.status },
+  { header: "Status", cell: (i) => <StatusChip kind={i.status === "active" ? "run" : "end"}>{i.status}</StatusChip> },
   { header: "Size", cell: (i) => (i.sizeBytes > 0n ? formatMiB(Math.round(Number(i.sizeBytes) / 2 ** 20)) : "—") },
   { header: "Digest", cell: (i) => <span title={i.digest}>{i.digest ? `${i.digest.slice(0, 19)}…` : "—"}</span> },
 ];
@@ -48,8 +50,8 @@ export function CatalogPage() {
   const catalog = useQuery({ queryKey: keys.admin.catalog, queryFn: () => admin.listCatalog({}) });
   return (
     <section>
-      <h1>Catalog</h1>
-      <p>Read-only: the demo catalog is seeded, not edited here. Offers no longer for sale and deprecated images are listed too.</p>
+      <PageTitle>Catalog</PageTitle>
+      <p>Read-only: the catalog is seeded, not edited here. Offers no longer for sale and deprecated images are listed too.</p>
       <QueryState query={catalog}>
         {(data) => (
           <>

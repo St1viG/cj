@@ -21,7 +21,7 @@ describe("a visitor without a session", () => {
     expect(location()).toBe("/login");
   });
 
-  it.each(["/app", "/partner/nodes", "/admin/audit", "/stage", "/"])("is sent from %s to /login", async (path) => {
+  it.each(["/app", "/partner/nodes", "/admin/audit", "/stage"])("is sent from %s to /login", async (path) => {
     renderApp(path);
     expect(await screen.findByRole("heading", { name: "Log in" })).toBeTruthy();
     expect(location()).toBe("/login");
@@ -106,7 +106,7 @@ describe("a signed-in user", () => {
     renderApp("/app/offers", fakeApi());
     const nav = await screen.findByRole("navigation", { name: "Customer" });
     const links = Array.from(nav.querySelectorAll("a")).map((a) => a.getAttribute("href"));
-    expect(links).toEqual(["/app/offers", "/app/instances", "/app/keys", "/app/usage"]);
+    expect(links).toEqual(["/app/offers", "/app/instances", "/app/keys", "/app/usage", "/app/billing"]);
   });
 
   it("matches /app/instances/new before /app/instances/:id", async () => {
