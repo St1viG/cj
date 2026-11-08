@@ -18,7 +18,7 @@ func newTokenCmd() *cobra.Command {
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a one-time enrollment token for a site",
-		Long: "Prints a one-hour, single-use token and the kondukter-agent enroll command for it. " +
+		Long: "Prints a one-hour, single-use token and the command that installs and enrolls the agent with it. " +
 			"Reads KONDUKTER_MASTER_KEY and KONDUKTER_PUBLIC_URL like `serve`. Partners get the same through " +
 			"PartnerService.CreateEnrollmentToken.",
 		Args: cobra.NoArgs,

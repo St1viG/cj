@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/St1viG/cj/internal/agent/driver"
@@ -55,8 +56,11 @@ type Options struct {
 	Home string
 	// Arch is the host architecture; empty means runtime.GOARCH.
 	Arch string
-	Log  *slog.Logger
-	Now  func() time.Time
+	// PollInterval is how often the driver checks on a boot that a previous
+	// agent process started; 0 means 1 s.
+	PollInterval time.Duration
+	Log          *slog.Logger
+	Now          func() time.Time
 }
 
 // Driver is the Lima driver.
@@ -101,6 +105,9 @@ func New(opts Options) (*Driver, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.PollInterval <= 0 {
+		opts.PollInterval = time.Second
+	}
 	if opts.Log == nil {
 		opts.Log = slog.New(slog.DiscardHandler)
 	}
@@ -121,7 +128,8 @@ func New(opts Options) (*Driver, error) {
 func (d *Driver) Name() string { return "lima" }
 
 // Events implements driver.EventSource: one event when a background create
-// or start finishes, successfully or not.
+// or start finishes, successfully or not, and when a boot that a previous
+// agent process started ends.
 func (d *Driver) Events() <-chan driver.Event { return d.events }
 
 // Capabilities implements driver.Driver: CPU-only VMs of the host's
@@ -160,10 +168,14 @@ func (d *Driver) Ensure(ctx context.Context, spec driver.InstanceSpec) (driver.O
 	switch {
 	case !found:
 		return d.background(spec.ID, "creating the VM", func(ctx context.Context) error { return d.create(ctx, spec) }), nil
-	case in.Status == statusRunning:
-		return d.observe(in), nil
-	case in.Status != statusStopped && in.HostAgentPID > 0:
-		// Booting: see observe.
+	case in.Status == statusRunning, in.Status != statusStopped && in.HostAgentPID > 0:
+		if in.HostAgentPID > 0 && !booted(in) && alive(in.HostAgentPID) {
+			// A boot this agent process did not start: a previous one died
+			// during `limactl start`, whose host agent lives on. Wait for it
+			// in the background, so the next pass comes once the VM is ready
+			// rather than at the next reconcile tick.
+			return d.background(spec.ID, "booting", func(ctx context.Context) error { return d.awaitBoot(ctx, in) }), nil
+		}
 		return d.observe(in), nil
 	case in.Status == statusStopped && ready(in):
 		// Stopped while desired: the host agent died (a hard power-off,
@@ -287,6 +299,27 @@ func booted(in instance) bool {
 		}
 	}
 	return false
+}
+
+// awaitBoot waits until in's host agent reports the VM ready or exits; the
+// event that follows brings the pass that reports the outcome.
+func (d *Driver) awaitBoot(ctx context.Context, in instance) error {
+	t := time.NewTicker(d.opts.PollInterval)
+	defer t.Stop()
+	for !booted(in) && alive(in.HostAgentPID) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
+	return nil
+}
+
+// alive reports whether process pid exists.
+func alive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // observe maps a listed instance to its Observed phase. A VM is running, and
