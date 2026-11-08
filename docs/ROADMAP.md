@@ -298,6 +298,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Depends on:** P1.2, P1.3
 - **Decisions required:** D-21 (ADR-0015), ADR-0012
 - **Size:** M
+- **Done so far (2026-11-08):** `gpu-image.qcow2`, a flattened copy of the S2a guest (driver 580.178.04, CUDA 12.0, llama.cpp and a 0.5B model; 15.6 GB), boots under the libvirt driver to a working `nvidia-smi` in 30 s from the create call with the image cached, well inside the 120 s criterion, and registers in the catalog through `kondukter seed catalog --file` with its digest. **Not done:** `deploy/images/ubuntu-gpu/build.sh` (a reproducible `virt-customize` build with pinned versions), `virt-sysprep` to clear the spike's leftover state, the manifest, `COMPAT.md`, and the second variant for FED-L (S2b).
 
 #### ☐ P1.7 — Decision gate: hardware roles, images, networking, libvirt binding
 - **Goal:** Freeze what P2–P4 build against.
@@ -605,6 +606,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Depends on:** P4.4
 - **Decisions required:** ADR-0012, ADR-0016
 - **Size:** M
+- **Done so far (2026-11-08, GPU half by hand on FED-D, with the control plane on the same box and `kctl` as the customer):** `kctl create --offer gpu-gtx1060-1x --image ubuntu-gpu-pascal --port 8080 --wait` went `PENDING → SCHEDULED → PROVISIONING → RUNNING` in 47 s on a cold cache (a 15.6 GB image fetched from loopback and checksummed) and 29 s with the image cached, with the SSH command and the 8080 mapping in `kctl get`. `nvidia-smi` showed the GTX 1060 and a llama.cpp prompt ran with `-ngl 99` at 155 tokens/s generation, both over the node's mapped port. A second GPU instance while the card was in use was `FAILED` with `no_capacity`. Terminating took 2 s and left no domain, instance directory or forward; the GPU stayed on `vfio-pci`; usage showed 4 min, 0.03 EUR. A new create then reused the GPU and port. **Not done:** the CPU/Mac half, `hack/demo-happy.sh`, three runs in a row. **Found:** `kctl get` and `kctl terminate` accept only an instance id, not the name that `kctl usage` shows; `kctl list` hides `FAILED` instances without `--all`.
 
 #### ☐ P4.6 — Failure path on hardware
 - **Goal:** The resilience story is real, not slides.
