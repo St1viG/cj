@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { type Column, DataTable } from "../../components/DataTable";
 import { formatTimestamp, nodeStatusLabel } from "../../lib/format";
 import { useSites } from "./sites";
+import { PageTitle } from "../../components/PageTitle";
 
 const columns: Column<Site>[] = [
   { header: "Name", cell: (s) => s.name },
@@ -30,7 +31,7 @@ export function SitesPage() {
   const sites = useSites();
   return (
     <section>
-      <h1>Sites</h1>
+      <PageTitle>Sites</PageTitle>
       <DataTable
         columns={columns}
         rows={sites.data?.sites}

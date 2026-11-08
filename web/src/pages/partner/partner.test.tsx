@@ -104,7 +104,7 @@ describe("/partner/nodes", () => {
     await waitFor(() => expect(location()).toBe("/partner/nodes?site=site-lab"));
     await waitFor(() => expect(screen.queryByRole("row", { name: /sim-amd64-00/ })).toBeNull());
 
-    fireEvent.click(within(screen.getByRole("navigation")).getByRole("link", { name: "Nodes" }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Partner" })).getByRole("link", { name: "Nodes" }));
     await waitFor(() => expect(location()).toBe("/partner/nodes"));
     expect(await findRow(/sim-amd64-00/)).toBeTruthy();
     expect((screen.getByLabelText("Site") as HTMLSelectElement).value).toBe("");

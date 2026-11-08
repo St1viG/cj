@@ -7,8 +7,10 @@ import { useApi } from "../../api/ApiProvider";
 import { keys } from "../../api/keys";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Field } from "../../components/Field";
+import { phaseKind, StatusChip } from "../../components/Status";
 import { Form } from "../../components/Form";
 import { formatMinutes, formatMoney, phaseLabel, shortId } from "../../lib/format";
+import { PageTitle } from "../../components/PageTitle";
 
 /** A `YYYY-MM-DD` from a date input, as local midnight; `undefined` when empty. */
 function localDay(value: string): Date | undefined {
@@ -26,7 +28,7 @@ const columns: Column<InstanceUsage>[] = [
     ),
   },
   { header: "Offer", cell: (u) => u.shapeName },
-  { header: "Phase", cell: (u) => phaseLabel(u.phase) },
+  { header: "Phase", cell: (u) => <StatusChip kind={phaseKind(u.phase)}>{phaseLabel(u.phase)}</StatusChip> },
   { header: "Price / hour", cell: (u) => formatMoney(u.pricePerHour) },
   { header: "Running", cell: (u) => formatMinutes(u.usage?.runningMinutes) },
   { header: "Estimated cost", cell: (u) => formatMoney(u.usage?.estimatedCost) },
@@ -57,8 +59,8 @@ export function UsagePage() {
 
   return (
     <section>
-      <h1>Usage</h1>
-      <Form submitLabel="Show period" onSubmit={(data) => setPeriod({ from: String(data.get("from") ?? ""), to: String(data.get("to") ?? "") })}>
+      <PageTitle>Usage</PageTitle>
+      <Form inline submitLabel="Show period" onSubmit={(data) => setPeriod({ from: String(data.get("from") ?? ""), to: String(data.get("to") ?? "") })}>
         <Field label="From" name="from" type="date" defaultValue={period.from} />
         <Field label="To (included)" name="to" type="date" defaultValue={period.to} />
       </Form>

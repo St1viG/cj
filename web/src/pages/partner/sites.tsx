@@ -20,7 +20,7 @@ export function SiteFilter() {
   const [site, setSite] = useSiteParam();
   const known = sites.data?.sites.some((s) => s.id === site) ?? true;
   return (
-    <div>
+    <div className="filterrow">
       <label>
         Site{" "}
         <select value={site} onChange={(e) => setSite(e.target.value)}>

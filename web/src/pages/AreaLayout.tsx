@@ -1,47 +1,32 @@
 import { NavLink, Outlet } from "react-router";
-import { useCurrentUser, useMe } from "../auth/AuthProvider";
-import { roleLabel } from "../auth/roles";
+import { SiteNav } from "../components/SiteNav";
 import type { AreaDef } from "../routes";
 
 /**
- * The frame around an area's pages: its navigation, who is signed in, and
- * logout. Plain markup; the owner's design replaces it.
+ * The frame around a dashboard area: the site's navigation bar, then this
+ * area's own tabs, then the page.
  */
 export function AreaLayout({ area }: { area: AreaDef }) {
-  const me = useCurrentUser();
-  const auth = useMe();
-
+  const navPages = area.pages.filter((p) => p.nav);
   return (
-    <>
-      <header>
-        <strong>Kondukter</strong> <span>{area.title}</span>
-        <nav aria-label={area.title}>
-          <ul>
-            {area.pages
-              .filter((p) => p.nav)
-              .map((p) => (
-                <li key={p.path}>
-                  <NavLink to={p.path}>{p.title}</NavLink>
-                </li>
-              ))}
-          </ul>
-        </nav>
-        <span>
-          {me.user?.email} ({roleLabel(me.role)}, {me.org?.name})
-        </span>{" "}
-        <button
-          type="button"
-          onClick={() => {
-            // The route guard sends the signed-out user to /login.
-            if (auth.status === "signedIn") void auth.logout();
-          }}
-        >
-          Log out
-        </button>
-      </header>
-      <main>
+    <div className="shell">
+      <SiteNav />
+      <nav className="subnav" aria-label={area.title}>
+        <span className="lbl" aria-hidden="true">
+          {area.title}
+        </span>
+        {navPages.map((p, i) => (
+          <NavLink key={p.path} to={p.path}>
+            <span className="ix" aria-hidden="true">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            {p.title}
+          </NavLink>
+        ))}
+      </nav>
+      <main className="page">
         <Outlet />
       </main>
-    </>
+    </div>
   );
 }

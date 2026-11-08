@@ -9,6 +9,7 @@ import { ErrorState, LoadingState } from "../../components/State";
 import { formatTimestamp } from "../../lib/format";
 import { newId } from "../../lib/ids";
 import { useSites } from "./sites";
+import { PageTitle } from "../../components/PageTitle";
 
 /**
  * `/partner/enroll`: a one-time enrollment token for a site, shown as the
@@ -24,7 +25,7 @@ export function EnrollPage() {
 
   return (
     <section>
-      <h1>Enroll a node</h1>
+      <PageTitle>Enroll a node</PageTitle>
       {sites.isPending ? (
         <LoadingState />
       ) : !list ? (
@@ -52,20 +53,28 @@ export function EnrollPage() {
         </Form>
       )}
       {created && (
-        <div role="region" aria-label="Enrollment command">
+        <div role="region" aria-label="Enrollment command" className="secret">
           <p>
             <strong>
               Token for site {created.site} created. Copy the command now: it is shown only once, works once, and expires at{" "}
               {formatTimestamp(created.res.expiresAt)}.
             </strong>
           </p>
+          <div className="term">
+            <header>
+              <span className="lbl">install</span>
+              <span className="acts">
+                <CopyButton text={created.res.enrollCommand} />
+              </span>
+            </header>
+            <pre>
+              <code data-testid="enroll-command">{created.res.enrollCommand}</code>
+            </pre>
+          </div>
           <p>
-            <code data-testid="enroll-command">{created.res.enrollCommand}</code> <CopyButton text={created.res.enrollCommand} />
-          </p>
-          <p>
-            Run it on the node, from a Kondukter checkout: it installs the agent as a service, enrolls it with the token and
+            Run it on the node, from a Warden checkout: it installs the agent as a service, enrolls it with the token and
             starts it. The node shows under Nodes and turns ready once the agent connects.{" "}
-            <button type="button" onClick={() => setCreated(null)}>
+            <button type="button" className="sm" onClick={() => setCreated(null)}>
               Done
             </button>
           </p>

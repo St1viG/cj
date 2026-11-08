@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BillingPage } from "./BillingPage";
 import { InstanceDetailPage } from "./InstanceDetailPage";
 import { InstancesPage } from "./InstancesPage";
 import { KeysPage } from "./KeysPage";
@@ -14,4 +15,5 @@ export const customerPages: Record<string, ReactNode> = {
   "/app/instances/:id": <InstanceDetailPage />,
   "/app/keys": <KeysPage />,
   "/app/usage": <UsagePage />,
+  "/app/billing": <BillingPage />,
 };
