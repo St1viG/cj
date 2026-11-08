@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 9 partly done · 12 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 10 partly done · 11 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -65,7 +65,7 @@
 - [x] P5.5 — Stage view data
 
 **P6 — Showcase**
-- [ ] P6.1 — Demo script
+- [ ] P6.1 — Demo script · *partly done: the run sheet is written; a run from it by a team member, and its times, wait for the fleet*
 - [ ] P6.2 — Pre-flight checklist and reset
 - [ ] P6.3 — Dress rehearsals and tag
 
@@ -665,7 +665,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
     - prints the timings per node type and appends them to `.demo/happy-timings.tsv`.
   - A failed check prints `FAIL` and the run goes on; the script exits non-zero at the end. On exit it terminates whatever a failed run left running. `kctl ssh` gets a `known_hosts` file of the run's own, since a new instance can reuse an old one's host port.
   - The llama.cpp step expects `llama-completion` or `llama-cli` on the GPU image's `PATH` and a model at `/opt/models/*.gguf`. P1.6 must match that, or `HAPPY_LLAMA` overrides it.
-  - The drill helpers (`log`, `ok`, `bad`, `short`) moved from `demo-failure.sh` to `hack/demo-lib.sh`. [`docs/DEMO.md`](DEMO.md) has a "Happy path" section: the steps, the overrides and the results.
+  - The drill helpers (`log`, `ok`, `bad`, `short`) moved from `demo-failure.sh` to `hack/demo-lib.sh`. [`docs/DEMO.md`](DEMO.md) has a section on the script: the steps, the overrides and the results.
   - **Verified on the development Mac** against a separate compose project, with three mock-driver agents: two arm64 and one amd64 with a simulated GTX 1060. The database had a placeholder `ubuntu-gpu-pascal` row.
     - `hack/demo-happy.sh 3`, with the expected drivers set to `mock`, passed three runs in a row. The Mac instance reached `RUNNING` in 3–4 s and the GPU one in 5–6 s. The minutes grew, the cost matched, both terminated within 1 s, and the capacity came back.
     - `HAPPY_GPU=0` passed.
@@ -791,7 +791,20 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 **Exit criterion:** two consecutive dress rehearsals pass from `make demo-reset`.
 
-#### ☐ P6.1 — Demo script
+#### ◐ P6.1 — Demo script
+- **As built so far (2026-11-08):** [`docs/DEMO.md`](DEMO.md) is the whole run sheet.
+  - **Setup:** the cast and the accounts; the screen layout (a browser profile per role, two `kctl` panes with a config file per role); a running order with a target time per part, about 25 minutes in all.
+  - **The story:** the problem and the partners, told over `/admin/nodes`.
+  - **Happy path in the browser:** step by step, with the expected screen at each step, what to say during the provisioning wait, and the GPU moment (`nvidia-smi` and the llama.cpp prompt that `hack/demo-happy.sh` checks).
+  - **The same from kctl:** an arm64 instance on a Mac, kept running for part 4.
+  - **Partner and operator views:** quarantine and unquarantine, force terminate, the audit log.
+  - **The rest:** the failure drills from P4.6, now with the stage view beside them; `make demo-reset` between runs; the fallbacks; the "do not" list. The script reference from P4.5 is at the end.
+  - **Fallbacks:** FED-L as CPU-only; FED-D unavailable, with `kdk-sim --gpu 1` labelled as simulated; Tailscale down, with every address moved to the LAN. The LAN steps rely on the gateway certificate being issued from `KONDUKTER_GATEWAY_HOSTS` at every start, and on the agent's `gateway` and `advertise_address` keys. The sheet marks them as not rehearsed.
+  - The only measured time in it is spike S3's 21 s from create to SSH on a Mac with a cached image. The sheet says the others are limits or targets.
+  - **Left:**
+    - P5.5's stage view, which the drills point to;
+    - the times on the real fleet;
+    - the acceptance run: a team member who did not build the system runs the happy path from the document alone.
 - **Goal:** Anyone on the team can run the demo from the document.
 - **Deliverables:** `docs/DEMO.md`: narrative (problem, partners, the fleet on screen); the exact sequence of commands and clicks with expected on-screen results; what to say during the 60–120 s provisioning waits; the three failure drills from P4.6 with timings; the GPU moment (`nvidia-smi` + llama.cpp prompt); fallbacks (FED-L as CPU-only; FED-D unavailable → `kdk-sim` GPU node with the mock driver, labeled as simulated; Tailscale trouble → everything on one LAN); a "do not" list (no sleep, no Wi-Fi switch, no OS updates).
 - **Acceptance criteria:** A team member who did not build the system runs the happy path from the document alone.
@@ -841,8 +854,8 @@ Not scheduled. Collected so nothing is forgotten.
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+3 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
-| P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **24 (+9 partly)** |
+| P6 Showcase | 3 | 1 | 2 | 2 | 0 (+1 partly) |
+| **Total** | **45** | **25** | **20** | **35** | **24 (+10 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
