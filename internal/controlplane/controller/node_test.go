@@ -114,6 +114,46 @@ func TestWatchdog(t *testing.T) {
 	}
 }
 
+// TestWatchdogRestartGrace: after a control-plane outage every node has been
+// silent since it began. The first sweeps after the restart must leave them
+// READY until the agents have had their reconnect backoff plus the usual
+// grace; a node that stays silent is UNREACHABLE after that.
+func TestWatchdogRestartGrace(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := storetest.Seed(t, s)
+	node, _ := storetest.AddNode(t, s, f.Site.ID, storetest.NodeOpts{})
+	if _, err := s.NodeHeartbeat(ctx, db.NodeHeartbeatParams{ID: node.ID}); err != nil {
+		t.Fatal(err)
+	}
+	node, _ = s.GetNode(ctx, node.ID)
+	started := node.LastSeenAt.Add(2 * time.Minute) // a two-minute outage
+	now := started
+	w := &controller.NodeWatchdog{
+		Store: s, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return now }, Started: started,
+	}
+	status := func() db.NodeStatus {
+		n, _ := s.GetNode(ctx, node.ID)
+		return n.Status
+	}
+	for _, after := range []time.Duration{0, 10 * time.Second, controller.RestartGrace - time.Second} {
+		now = started.Add(after)
+		if err := w.Sweep(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if status() != db.NodeStatusReady {
+			t.Fatalf("%v after the restart: status %s, want ready", after, status())
+		}
+	}
+	now = started.Add(controller.RestartGrace)
+	if err := w.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if status() != db.NodeStatusUnreachable {
+		t.Fatalf("after RestartGrace: status %s, want unreachable", status())
+	}
+}
+
 func TestDrainToMaintenanceAndBack(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)

@@ -93,6 +93,13 @@ type Hooks struct {
 // UNREACHABLE within 45 s.
 const HeartbeatGrace = 3*agentproto.HeartbeatInterval + 5*time.Second
 
+// RestartGrace is how long after the watchdog starts no node counts as
+// silent. Agents cut off by a control-plane outage reconnect within their
+// backoff cap, then get the usual HeartbeatGrace. Without it, the first
+// sweep after a restart finds every node silent since the outage began and
+// flaps their instances through UNREACHABLE (roadmap P4.6, drill 2).
+const RestartGrace = agentproto.ReconnectBackoffMax + HeartbeatGrace
+
 // NodeWatchdog runs the node sweeps.
 type NodeWatchdog struct {
 	Store    *store.Store
@@ -100,6 +107,9 @@ type NodeWatchdog struct {
 	Hooks    Hooks
 	Now      func() time.Time
 	Interval time.Duration
+	// Started is when the watchdog began, for RestartGrace. Run sets it if it
+	// is zero; a zero Started (Sweep called directly) means no restart grace.
+	Started time.Time
 }
 
 // Run sweeps every Interval (10 s) until ctx is canceled.
@@ -107,6 +117,9 @@ func (w *NodeWatchdog) Run(ctx context.Context) error {
 	every := w.Interval
 	if every == 0 {
 		every = 10 * time.Second
+	}
+	if w.Started.IsZero() {
+		w.Started = w.now()
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -122,19 +135,28 @@ func (w *NodeWatchdog) Run(ctx context.Context) error {
 	}
 }
 
+func (w *NodeWatchdog) now() time.Time {
+	if w.Now != nil {
+		return w.Now()
+	}
+	return time.Now()
+}
+
 // Sweep marks silent READY nodes UNREACHABLE (their RUNNING instances with
 // them) and moves empty DRAINING nodes to MAINTENANCE.
 func (w *NodeWatchdog) Sweep(ctx context.Context) error {
-	now := time.Now
-	if w.Now != nil {
-		now = w.Now
-	}
+	now := w.now()
+	// Inside RestartGrace no node is silent yet, so the query is skipped.
+	checkSilent := w.Started.IsZero() || !now.Before(w.Started.Add(RestartGrace))
 	var changed []uuid.UUID
 	err := w.Store.WithTx(ctx, func(tx store.Tx) error {
 		changed = changed[:0]
-		silent, err := tx.ListSilentReadyNodesForUpdate(ctx, now().Add(-HeartbeatGrace))
-		if err != nil {
-			return err
+		var silent []db.Node
+		if checkSilent {
+			var err error
+			if silent, err = tx.ListSilentReadyNodesForUpdate(ctx, now.Add(-HeartbeatGrace)); err != nil {
+				return err
+			}
 		}
 		for _, n := range silent {
 			if _, err := tx.SetNodeStatus(ctx, db.SetNodeStatusParams{

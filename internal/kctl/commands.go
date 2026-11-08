@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/St1viG/cj/gen/go/kondukter/api/v1"
@@ -685,6 +686,93 @@ func (a *app) nodesCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&site, "site", "", "site id or name")
 	return cmd
+}
+
+func (a *app) drainCmd() *cobra.Command {
+	var reason string
+	cmd := &cobra.Command{
+		Use:   "drain NODE",
+		Short: "Stop placing instances on a node; running ones stay (partners and operators)",
+		Long: "Stop placing instances on a node, given by hostname or id. Running instances stay;\n" +
+			"once the last one is gone the node is MAINTENANCE. `kctl undrain` reverses it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.clients()
+			if err != nil {
+				return err
+			}
+			id, err := resolveNode(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			// A fresh key: draining again after an undrain is a new change.
+			res, err := c.partner.DrainNode(cmd.Context(), connect.NewRequest(&apiv1.DrainNodeRequest{
+				NodeId: id, Reason: reason, IdempotencyKey: "kctl-drain-" + uuid.NewString(),
+			}))
+			if err != nil {
+				return err
+			}
+			return a.printNode(res.Msg, res.Msg.GetNode())
+		},
+	}
+	cmd.Flags().StringVar(&reason, "reason", "", "recorded in the audit log")
+	return cmd
+}
+
+func (a *app) undrainCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "undrain NODE",
+		Short: "Make a DRAINING or MAINTENANCE node schedulable again (partners and operators)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.clients()
+			if err != nil {
+				return err
+			}
+			id, err := resolveNode(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			res, err := c.partner.UndrainNode(cmd.Context(), connect.NewRequest(&apiv1.UndrainNodeRequest{
+				NodeId: id, IdempotencyKey: "kctl-undrain-" + uuid.NewString(),
+			}))
+			if err != nil {
+				return err
+			}
+			return a.printNode(res.Msg, res.Msg.GetNode())
+		},
+	}
+}
+
+func (a *app) printNode(msg proto.Message, n *apiv1.Node) error {
+	return a.print(msg, func() error {
+		_, err := fmt.Fprintf(a.out, "%s %s\n", n.GetHostname(), nodeStatusName(n.GetStatus()))
+		return err
+	})
+}
+
+// resolveNode accepts a node id or hostname.
+func resolveNode(ctx context.Context, c clients, ref string) (string, error) {
+	if _, err := uuid.Parse(ref); err == nil {
+		return ref, nil
+	}
+	res, err := c.partner.ListNodes(ctx, connect.NewRequest(&apiv1.ListNodesRequest{}))
+	if err != nil {
+		return "", err
+	}
+	var found []string
+	for _, n := range res.Msg.GetNodes() {
+		if n.GetHostname() == ref {
+			found = append(found, n.GetId())
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("no node %q", ref)
+	case 1:
+		return found[0], nil
+	}
+	return "", fmt.Errorf("%q matches %d nodes; use the node id", ref, len(found))
 }
 
 // resolveSite accepts a site id or name; empty means all.

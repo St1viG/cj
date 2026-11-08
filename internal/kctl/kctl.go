@@ -113,7 +113,7 @@ func New(o Options) *cobra.Command {
 	pf.StringVarP(&a.output, "output", "o", "table", "output format: table or json")
 	root.AddCommand(
 		a.loginCmd(), a.whoamiCmd(), a.offersCmd(), a.imagesCmd(), a.createCmd(), a.getCmd(), a.listCmd(),
-		a.watchCmd(), a.terminateCmd(), a.sshCmd(), a.nodesCmd(), a.enrollTokenCmd(), a.usageCmd(),
+		a.watchCmd(), a.terminateCmd(), a.sshCmd(), a.nodesCmd(), a.drainCmd(), a.undrainCmd(), a.enrollTokenCmd(), a.usageCmd(),
 	)
 	return root
 }
