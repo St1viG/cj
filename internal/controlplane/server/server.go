@@ -28,6 +28,7 @@ import (
 	"github.com/St1viG/cj/internal/controlplane/scheduler"
 	"github.com/St1viG/cj/internal/controlplane/usage"
 	"github.com/St1viG/cj/internal/store"
+	"github.com/St1viG/cj/web"
 )
 
 // Config is the control plane's runtime configuration.
@@ -148,7 +149,20 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	})
 	s.Mux.Handle(apiv1connect.NewEnrollmentServiceHandler(enrollment.Handler{Svc: s.Enrollment}))
 	s.API.Mount(s.Mux)
+	s.mountWeb()
 	return s, nil
+}
+
+// mountWeb serves the embedded web app (ADR-0022) at / and the API again
+// under /api, the path the browser's client is built for. kctl and agents keep
+// using the services at the root; both paths reach the same handlers.
+func (s *Server) mountWeb() {
+	s.Mux.Handle("/api/", http.StripPrefix("/api", s.Mux))
+	app := web.Dist()
+	if !web.Built(app) {
+		s.log.Warn("the web app is not built into this binary; run `make web` before `make build`")
+	}
+	s.Mux.Handle("/", web.Handler(app))
 }
 
 // Close releases the database pool.

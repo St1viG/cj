@@ -88,8 +88,8 @@ jobs:
         run: make test
 
   web:
-    # Enabled in P5.1 together with the web app.
-    if: false
+    # The web app (roadmap P5.1): typecheck, tests and build, then the build
+    # embedded into the binary and served.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -100,4 +100,15 @@ jobs:
         with:
           node-version: 26
           cache: pnpm
-      - run: make web
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install, typecheck, test and build
+        run: make web
+
+      - name: The build embeds into the binary
+        run: |
+          make build
+          go test -race ./web/
+          test -n "$(find web/dist/assets -name '*.js')"
