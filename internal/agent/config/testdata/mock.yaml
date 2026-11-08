@@ -1,0 +1,28 @@
+# A mock-driver agent shaped like FED-D: one simulated GTX 1060.
+server: http://kondukter.test:8080
+driver: mock
+data_dir: /tmp/kdk-agent
+reserved:
+  vcpu: 2
+  ram_mib: 2048
+port_range:
+  first: 40000
+  last: 40999
+advertise_address: 100.64.0.10
+labels:
+  site: demo
+max_instances: 4
+log_level: debug
+mock:
+  arch: amd64
+  hostname: fed-d-sim
+  vcpu: 12
+  ram_mib: 32768
+  disk_gib: 400
+  provision_delay: 2s
+  failure_rate: 0.1
+  accelerators:
+    - id: "0000:01:00.0"
+      kind: nvidia
+      model: GeForce GTX 1060 6GB
+      mem_mib: 6144

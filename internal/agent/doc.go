@@ -1,4 +1,4 @@
-// Package agent is the root of kondukter-agent: stream client, reconcile loop,
-// inventory, metering, access and the VM drivers (SPEC §7). Subpackages arrive
-// with roadmap phase P2.
+// Package agent wires kondukter-agent together (SPEC §7): the local store,
+// the driver, and the goroutines that stream, reconcile, report inventory,
+// meter and manage access. Each concern lives in a subpackage.
 package agent

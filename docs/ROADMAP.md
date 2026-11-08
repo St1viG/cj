@@ -247,13 +247,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 
 **Exit criterion:** `kondukter-agent` converges to a hand-written desired state served by the stub gateway with the `mock`, `lima` and `libvirt` drivers; survives `kill -9` at any point and stream drops without leaking or double-creating VMs; `go test -race ./internal/agent/...` green.
 
-#### ☐ P2.1 — Agent skeleton, config, local store, driver interface
+#### ☑ P2.1 — Agent skeleton, config, local store, driver interface
 - **Goal:** The agent process shape with crash-safe local state.
 - **Deliverables:** `cmd/kondukter-agent` (cobra: `run`, `enroll`, `version`); config file (`/etc/kondukter-agent/config.yaml`, macOS `/Library/Application Support/kondukter-agent/config.yaml`) with server URL, driver, data dir, reserved CPU/RAM, port range, advertise address, labels, `max_instances`; `log/slog` JSON; `internal/agent/store` on bbolt with buckets `meta` (node id, applied generation, last snapshot), `outbox` (seq → serialized `AgentMessage`), `ports` (host port → instance id), `identity` (key, cert, CA); `internal/agent/driver` with the SPEC §7.3 interface and shared types; a `mock` driver stub reporting configured inventory (full behavior in P2.3).
 - **Acceptance criteria:** `kondukter-agent run --config …` starts, logs mock inventory, exits cleanly on SIGTERM. Store tests: outbox write/read/prune, seq monotonic across reopen, snapshot round-trip. A reopen after `kill -9` during writes yields a consistent store.
 - **Depends on:** P0.3, P1.7
 - **Decisions required:** ADR-0018
 - **Size:** S
+- **As built (2026-11-08):** Built ahead of gate P1.7, because nothing here depends on the hardware findings. `internal/agent/config` decodes YAML strictly (unknown keys fail), applies defaults (port range 40000–49999, data dir `/var/lib/kondukter-agent` or `/usr/local/var/lib/kondukter-agent` per ADR-0018), validates, and carries a `mock` section (arch, hostname, vCPU/RAM/disk, accelerators, `provision_delay`, `failure_rate`). `internal/agent/store` keeps `state.db` in the data dir. Outbox seq numbers come from the bucket's persisted `NextSequence`, so they never restart even after a full prune. Ports are stored under 2-byte keys, and `SetIdentity` writes key, cert, CA and node id in one transaction. A second process opening the store gets `ErrLocked`. The crash test re-executes the test binary as a writer and SIGKILLs it eight times mid-write. `internal/agent/driver` adds an optional `EventSource` interface for the reconcile triggers, `ErrUnsupported`, and `InstanceSpec.PortMappings` for drivers that forward ports themselves (Lima). `internal/logging` builds the JSON slog logger shared by every binary. `kondukter-agent enroll` exists with its flags and returns "not implemented yet (P3.2)"; `libvirt`/`lima` fail with a pointer to P2.5/P2.6.
 
 #### ☐ P2.2 — Stub gateway and stream client
 - **Goal:** A working outbound stream with Hello/resync, heartbeats, acks and reconnect, testable without the control plane.
