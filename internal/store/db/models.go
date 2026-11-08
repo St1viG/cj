@@ -226,6 +226,15 @@ type EnrollmentToken struct {
 	NodeID    *uuid.UUID
 }
 
+type IdempotencyKey struct {
+	OrgID       uuid.UUID
+	Method      string
+	Key         string
+	RequestHash []byte
+	Response    []byte
+	CreatedAt   time.Time
+}
+
 type Image struct {
 	ID               uuid.UUID
 	Name             string

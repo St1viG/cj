@@ -31,6 +31,32 @@ func (q *Queries) GetSite(ctx context.Context, id uuid.UUID) (Site, error) {
 	return i, err
 }
 
+const getSiteByName = `-- name: GetSiteByName :one
+SELECT s.id, s.partner_id, s.name, s.region, s.country_code, s.network_mode, s.public_ip_pool, s.created_at FROM sites s JOIN partners p ON p.id = s.partner_id
+WHERE p.name = $1 AND s.name = $2
+`
+
+type GetSiteByNameParams struct {
+	PartnerName string
+	SiteName    string
+}
+
+func (q *Queries) GetSiteByName(ctx context.Context, arg GetSiteByNameParams) (Site, error) {
+	row := q.db.QueryRow(ctx, getSiteByName, arg.PartnerName, arg.SiteName)
+	var i Site
+	err := row.Scan(
+		&i.ID,
+		&i.PartnerID,
+		&i.Name,
+		&i.Region,
+		&i.CountryCode,
+		&i.NetworkMode,
+		&i.PublicIpPool,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listSites = `-- name: ListSites :many
 SELECT id, partner_id, name, region, country_code, network_mode, public_ip_pool, created_at FROM sites ORDER BY name
 `

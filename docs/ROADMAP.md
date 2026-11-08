@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 12 of 45 items** (about 10 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
+**Done: 13 of 45 items** (about 11 of 35 estimated sessions) · 2 partly done · 33 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -43,7 +43,7 @@
 - [x] P3.4 — Node lifecycle and demo catalog
 - [x] P3.5 — Scheduler
 - [x] P3.6 — Instance controller
-- [ ] P3.7 — Public API core and API-key auth
+- [x] P3.7 — Public API core and API-key auth
 - [ ] P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
 - [ ] P3.9 — `kctl` CLI
 - [ ] P3.10 — Fleet simulator and chaos tests
@@ -448,13 +448,14 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Size:** M
 - **As built (2026-11-08):** The transition table, `Transition` and agent status ingest landed with P3.3. P3.6 adds `controller.InstanceController`. Its `Terminate` locks the instance: a placed instance goes to TERMINATING (undesired, generation bumped, node notified), a PENDING one ends TERMINATED at once, a repeat is a no-op, and an ended instance returns `ErrTerminal`. Its 5 s sweep (`Sweep`, injectable `Now`) runs the timers: SCHEDULED or PROVISIONING for more than 10 min counted from `scheduled_at` → `FAILED(provision_timeout)`, and UNREACHABLE for more than 15 min → `LOST(unreachable_timeout)`. Both release allocations and bump the generation, so the agent deletes the VM if it still has it. The PENDING → `FAILED(no_capacity)` timer lives in the scheduler (P3.5). The table now also lists SCHEDULED + provision_timeout, because the timer runs from placement. Fixes found on the way: migration `00005` lets a TERMINATED instance have no node (terminating a PENDING one violated the schema's check), and a heartbeat from a node the watchdog marked UNREACHABLE while its stream was still open now ends the stream with `Unavailable`. The agent reconnects and its Hello re-reports every instance; before this fix the node stayed UNREACHABLE and its instances would have gone LOST. `kondukter serve` runs the controller beside the scheduler and watchdog, and every hook that changes an instance wakes the scheduler. Tests: every (phase, event) pair is checked against the SPEC §6.3 edges plus the documented extensions, and every other pair must be rejected; the timers with a fake clock (nothing at 9 or 14 min, expired at 11 or 16 min, allocations released, generation bumped); `Terminate` from each phase. A full-wiring test through `server.Serve` with two enrolled mock agents covers: a CPU instance on the failing node ends `FAILED` with the driver's reason; a GPU instance reaches RUNNING in about 0.6 s; stopping its agent with the watchdog clock skewed by 45 s gives node and instance UNREACHABLE; restarting the agent brings both back to READY and RUNNING; terminating ends TERMINATED with both allocations released; the freed GPU takes the next instance. A second test covers the marked-unreachable-while-connected recovery and fails without the fix. Connection info from port mappings is covered at ingest; real mappings arrive with the access module (P2.7).
 
-#### ☐ P3.7 — Public API core and API-key auth
+#### ☑ P3.7 — Public API core and API-key auth
 - **Goal:** Customers can do everything the demo needs over Connect.
 - **Deliverables:** `internal/controlplane/api`: `CatalogService` (ListOffers with filters, ListImages, ListRegions); `InstanceService` (CreateInstance validating offer/image arch and accelerator compatibility, SSH keys, ports, user-data ≤ 16 KiB, with idempotency key → same instance; GetInstance; ListInstances; TerminateInstance; WatchInstance server stream fed by an in-process event bus); `AccountService` (Create/List/RevokeAPIKey, Add/List/DeleteSSHKey); `AuthService.GetMe` for API-key callers (P3.8 adds sessions to it). Auth interceptor: `Authorization: Bearer kdk_…` → hashed lookup in `api_keys` → org and role; org scoping on every query; idempotency keys stored per org with a 24 h TTL. JSON and gRPC served on the same API port.
 - **Acceptance criteria:** `hack/api-smoke.sh` (`buf curl`): list offers → create → watch to `RUNNING` on the simulator → terminate. A repeated `CreateInstance` with the same idempotency key returns the same id. Org B gets `NotFound` for org A's instance. A bad API key gets `Unauthenticated`. Handler tests run against the store.
 - **Depends on:** P3.6
 - **Decisions required:** ADR-0006, ADR-0021
 - **Size:** M
+- **As built (2026-11-08):** `internal/controlplane/api` mounts `CatalogService`, `InstanceService`, `AccountService` and `AuthService` on the API port behind one Connect interceptor. Connect serves Connect JSON, gRPC and gRPC-Web on that port; plain `curl` with JSON and `buf curl --protocol grpc` were both checked against the live server. **Auth:** `Authorization: Bearer kdk_…` (`kdk_` plus 40 base32 characters, 200 random bits). The SHA-256 of the secret is looked up in `api_keys`, joined to the user, the org and the membership. Revoked or unknown keys get `Unauthenticated`. The role comes from the org kind, `last_used_at` is written at most once a minute, `InstanceService` is customer-only (`PermissionDenied` otherwise), and Enroll, Login and Logout are public. **Org scoping:** instances, SSH keys and API keys are read only through org-scoped queries, so another org's id, or a malformed one, is `NotFound`. **Idempotency** (migration `00006`, `idempotency_keys`): per org, method and key, the hash of the first request (excluding the key) and its response are stored inside the RPC's own transaction. A replay returns the stored response, the same key with a different request gets `InvalidArgument`, concurrent duplicates wait on the row and then replay, keys expire after 24 h (an hourly janitor purges them), and a failed request leaves no record. `CreateAPIKey` stores its response without the secret, so a replay returns the key without it. **CreateInstance** checks that the offer exists and is active, and that the image is active and compatible: an accelerator shape needs an image whose stack lists its model, and a CPU shape needs an image without a stack. It also checks SSH keys (account key ids and/or inline OpenSSH keys, at least one, deduplicated by fingerprint), ports (1–65535, no 22/tcp, no duplicates, at most 16), user data of at most 16 KiB, and a name of at most 63 characters, which also becomes the hostname when it is a DNS label. It writes the spec, a `created` event, wakes the scheduler and publishes on the bus. **TerminateInstance** runs `controller.TerminateTx` in the idempotent transaction, and terminating an already-ended instance succeeds. **WatchInstance** subscribes to the in-process `events.Bus` before its first read, then sends the instance at once and again whenever it changes. A signal carries only the id, so the handler re-reads the row and never sends a stale state. It also re-reads every 30 s, and ends at a terminal phase. The scheduler, gateway, watchdog and instance timers all publish to the bus. `ListInstances` is newest first with keyset page tokens. `AuthService.Login` and `Logout` return `Unimplemented` until P3.8. Pulled forward from P3.8 so the smoke test can run: `kondukter seed accounts` (partner `demo-dc` with site `demo`, orgs `acme`, `demo-dc` and `kondukter`, the three demo users with argon2id hashes of `SEED_PASSWORD`, and an API key printed once for each user that has none; a second run creates nothing). Also added: `kondukter token create [--partner --site]`, which prints an enrollment token and the enroll command. `hack/api-smoke.sh` passed against a live stack (`serve`, both seeds, a mock-driver agent enrolled with `token create`): a bad key got `Unauthenticated`, then GetMe, list offers, create twice with one idempotency key (same id), watch to RUNNING, terminate, and watch to TERMINATED. The real simulator replaces the single mock agent in P3.10. `accounts` tests cover argon2id hashing and verification, the key format, and seeding twice. Handler tests against Postgres cover authentication (no key, a malformed key, an unknown key, the Basic scheme, a revoked key, a partner denied instances), catalog filters, create (the spec, the event, replay, a reused key, the same key in another org, 8 concurrent duplicates) with 20 validation cases, org scoping (Get, Terminate, Watch and List all `NotFound` or empty for org B), watch from PENDING through RUNNING to TERMINATED with the subscription released, terminate replay, pagination, API key and SSH key lifecycles, key expiry and purge, and no internal details in error messages.
 
 #### ☐ P3.8 — Partner and Admin services, seeded accounts, sessions, audit log
 - **Goal:** The partner and operator sides of the demo, and a way to log in from a browser.
@@ -463,6 +464,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Depends on:** P3.7
 - **Decisions required:** ADR-0021
 - **Size:** M
+- **Note (2026-11-08):** `kondukter seed accounts` was built in P3.7 for its smoke test; what P3.8 still owns is listed above, minus that command.
 
 #### ☐ P3.9 — `kctl` CLI
 - **Goal:** The demo driver and the first client of the API.
@@ -643,11 +645,11 @@ Not scheduled. Collected so nothing is forgotten.
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 3 (+1 partly) |
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 3 (+1 partly) |
-| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 6 |
+| P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 7 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 0 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 |
-| **Total** | **45** | **25** | **20** | **35** | **12 (+2 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **13 (+2 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 

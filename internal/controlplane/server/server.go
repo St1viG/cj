@@ -19,8 +19,10 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/St1viG/cj/gen/go/kondukter/api/v1/apiv1connect"
+	"github.com/St1viG/cj/internal/controlplane/api"
 	"github.com/St1viG/cj/internal/controlplane/controller"
 	"github.com/St1viG/cj/internal/controlplane/enrollment"
+	"github.com/St1viG/cj/internal/controlplane/events"
 	"github.com/St1viG/cj/internal/controlplane/gateway"
 	"github.com/St1viG/cj/internal/controlplane/pki"
 	"github.com/St1viG/cj/internal/controlplane/scheduler"
@@ -91,6 +93,8 @@ type Server struct {
 	Nodes      *controller.NodeWatchdog
 	Scheduler  *scheduler.Scheduler
 	Instances  *controller.InstanceController
+	Bus        *events.Bus
+	API        *api.API
 	// Mux is the API router; services are mounted on it.
 	Mux *http.ServeMux
 }
@@ -114,14 +118,21 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, log: log, Store: st, CA: ca, Mux: http.NewServeMux()}
 	// Anything that changes an instance may free capacity: wake the
-	// scheduler. Hooks run after commit and never block.
-	wake := func(uuid.UUID) { s.Scheduler.Trigger() }
+	// scheduler, and tell watchers. Hooks run after commit and never block.
+	s.Bus = events.New()
+	wake := func(id uuid.UUID) {
+		s.Scheduler.Trigger()
+		s.Bus.Publish(id)
+	}
 	s.Gateway = gateway.New(st, log.With("module", "gateway"), gateway.Hooks{InstanceChanged: wake})
-	s.Scheduler = scheduler.New(st, log.With("module", "scheduler"), scheduler.Hooks{NodeChanged: s.Gateway.NodeChanged})
+	s.Scheduler = scheduler.New(st, log.With("module", "scheduler"), scheduler.Hooks{
+		NodeChanged: s.Gateway.NodeChanged, InstanceChanged: s.Bus.Publish,
+	})
 	s.Enrollment = enrollment.New(st, ca, cfg.GatewayAdvertise, cfg.PublicURL)
 	hooks := controller.Hooks{InstanceChanged: wake, NodeChanged: s.Gateway.NodeChanged}
 	s.Nodes = &controller.NodeWatchdog{Store: st, Log: log.With("module", "nodes"), Hooks: hooks}
 	s.Instances = &controller.InstanceController{Store: st, Log: log.With("module", "instances"), Hooks: hooks}
+	s.API = api.New(st, log.With("module", "api"), s.Bus, s.Scheduler, s.Instances)
 
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -131,6 +142,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	s.Mux.Handle(apiv1connect.NewEnrollmentServiceHandler(enrollment.Handler{Svc: s.Enrollment}))
+	s.API.Mount(s.Mux)
 	return s, nil
 }
 
@@ -183,6 +195,7 @@ func (s *Server) Serve(ctx context.Context, apiLis, gwLis net.Listener, gwTLS *t
 	eg.Go(func() error { return s.Nodes.Run(ctx) })
 	eg.Go(func() error { return s.Scheduler.Run(ctx) })
 	eg.Go(func() error { return s.Instances.Run(ctx) })
+	eg.Go(func() error { return s.API.Janitor(ctx) })
 	eg.Go(func() error {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
