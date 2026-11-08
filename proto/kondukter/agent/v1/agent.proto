@@ -1,0 +1,278 @@
+syntax = "proto3";
+
+// Package kondukter.agent.v1 is the protocol between kondukter-agent and the
+// Kondukter agent gateway (SPEC §8, ADR-0001, ADR-0002, ADR-0006).
+//
+// The agent opens one bidirectional stream and keeps it open. Node identity
+// comes only from the mTLS client certificate (ADR-0024), never from a
+// message body. Every AgentMessage carries a persisted, per-node monotonic
+// seq; the gateway answers with a cumulative Ack once the messages are
+// durably stored. DesiredState is always a full snapshot for the node.
+package kondukter.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AgentGateway terminates agent streams on the mTLS gateway listener.
+service AgentGateway {
+  // Connect is opened by the agent (outbound) and kept open for the agent's
+  // lifetime. The first AgentMessage must be a Hello; the gateway answers it
+  // with the current DesiredState.
+  rpc Connect(stream AgentMessage) returns (stream ControlMessage);
+}
+
+// AgentMessage is everything the agent sends.
+message AgentMessage {
+  // Persisted across restarts, monotonic per node, starting at 1.
+  uint64 seq = 1;
+  oneof body {
+    Hello hello = 10;
+    Inventory inventory = 11;
+    Heartbeat heartbeat = 12;
+    InstanceStatus instance_status = 13;
+    UsageBatch usage = 14;
+  }
+}
+
+// ControlMessage is everything the gateway sends.
+message ControlMessage {
+  oneof body {
+    DesiredState desired_state = 10;
+    // Cumulative: every AgentMessage.seq <= ack.seq is durable.
+    Ack ack = 11;
+    DrainRequest drain = 12;
+    UpgradeRequest upgrade = 13;
+  }
+}
+
+// Hello opens every stream and resynchronizes the gateway with the agent.
+message Hello {
+  // The gateway rejects an incompatible version with FAILED_PRECONDITION.
+  string protocol_version = 1;
+  string agent_version = 2;
+  // "libvirt" | "lima" | "mock".
+  string driver = 3;
+  // Generation of the last DesiredState the agent fully applied; 0 if none.
+  uint64 last_applied_generation = 4;
+  // Every Kondukter-owned instance the driver currently sees on the host.
+  repeated InstanceStatus observed = 5;
+  Capabilities capabilities = 6;
+}
+
+// Capabilities describes what the agent's driver can do on this host.
+message Capabilities {
+  // "amd64" | "arm64".
+  string arch = 1;
+  // Accelerator kinds the driver can attach: "nvidia", "apple-metal", "mock".
+  repeated string accelerator_kinds = 2;
+  bool gpu_passthrough = 3;
+  // 0 means unlimited.
+  uint32 max_instances = 4;
+}
+
+// Inventory reports host resources. Sent after Hello, every 5 minutes, and
+// whenever the agent detects a difference.
+message Inventory {
+  string hostname = 1;
+  // "amd64" | "arm64".
+  string arch = 2;
+  // Human-readable OS release, e.g. "Fedora Linux 43" or "macOS 26.1".
+  string os = 3;
+  string kernel = 4;
+  // Physical totals.
+  Resources total = 5;
+  // Held back for the host (agent config); allocatable = total - reserved.
+  Resources reserved = 6;
+  repeated Accelerator accelerators = 7;
+  // Guest images present in the node's local cache.
+  repeated CachedImage cached_images = 8;
+  map<string, string> labels = 9;
+  // Address customers use to reach port mappings (the tailnet IP in the demo).
+  string advertise_address = 10;
+}
+
+// Resources is an amount of host capacity.
+message Resources {
+  uint32 vcpu = 1;
+  uint64 ram_mib = 2;
+  uint64 disk_gib = 3;
+}
+
+// Accelerator is one passthrough-able device, e.g. a whole GPU (ADR-0008).
+message Accelerator {
+  // Stable on this host. The PCI address for passthrough devices
+  // ("0000:01:00.0"); a configured id for mock accelerators.
+  string id = 1;
+  // "nvidia" | "apple-metal" | "mock".
+  string kind = 2;
+  // Marketing model name, e.g. "GeForce GTX 1060 6GB".
+  string model = 3;
+  uint64 mem_mib = 4;
+  string pci_address = 5;
+  // PCI vendor and device id, e.g. "10de" and "1c03".
+  string vendor_id = 6;
+  string device_id = 7;
+  // -1 when unknown.
+  int32 numa_node = 8;
+  // -1 when unknown.
+  int32 iommu_group = 9;
+  // Kernel driver currently bound, e.g. "vfio-pci" or "nvidia".
+  string host_driver = 10;
+  AcceleratorHealth health = 11;
+  // Why health is not OK, e.g. "bound to nvidia, not vfio-pci".
+  string health_reason = 12;
+  // Other functions in the same IOMMU group that are passed through with the
+  // device, e.g. the GPU's HDMI audio function.
+  repeated string companion_pci_addresses = 13;
+}
+
+// AcceleratorHealth is the agent's view of whether a device can be attached.
+enum AcceleratorHealth {
+  ACCELERATOR_HEALTH_UNSPECIFIED = 0;
+  // Bound to the passthrough driver and ready to attach.
+  ACCELERATOR_HEALTH_OK = 1;
+  // Present but not attachable, see health_reason.
+  ACCELERATOR_HEALTH_UNAVAILABLE = 2;
+}
+
+// CachedImage identifies a guest image in the node's local cache.
+message CachedImage {
+  string name = 1;
+  string version = 2;
+  // "sha256:<hex>".
+  string digest = 3;
+}
+
+// Heartbeat is sent every 10 s.
+message Heartbeat {
+  uint64 applied_generation = 1;
+  google.protobuf.Timestamp at = 2;
+  ResourceSummary resources = 3;
+}
+
+// ResourceSummary is the agent's own count of what its instances use.
+message ResourceSummary {
+  uint32 instances = 1;
+  Resources allocated = 2;
+}
+
+// DesiredState is a full snapshot of every instance that should exist on the
+// node. Instances absent from it are deleted by the agent.
+message DesiredState {
+  // Monotonic per node. The agent ignores snapshots older than the one it
+  // last applied.
+  uint64 generation = 1;
+  repeated InstanceSpec instances = 2;
+}
+
+// InstanceSpec is everything the driver needs to create an instance.
+message InstanceSpec {
+  string id = 1;
+  uint32 vcpu = 2;
+  uint64 ram_mib = 3;
+  uint64 disk_gib = 4;
+  // Concrete devices chosen by the scheduler (Accelerator.id values).
+  repeated string accelerator_ids = 5;
+  ImageRef image = 6;
+  repeated string ssh_public_keys = 7;
+  // Optional cloud-init user-data, at most 16 KiB (ADR-0015).
+  bytes user_data = 8;
+  // Guest ports to expose in addition to 22, which is always mapped.
+  repeated PortSpec ports = 9;
+  // Guest hostname.
+  string hostname = 10;
+}
+
+// ImageRef points at a curated guest image (ADR-0015).
+message ImageRef {
+  string name = 1;
+  string version = 2;
+  // "amd64" | "arm64".
+  string arch = 3;
+  // "sha256:<hex>" of the file at url.
+  string digest = 4;
+  string url = 5;
+  uint64 size_bytes = 6;
+  // "qcow2" | "raw".
+  string format = 7;
+}
+
+// Protocol is a transport protocol for an exposed port.
+enum Protocol {
+  PROTOCOL_UNSPECIFIED = 0;
+  PROTOCOL_TCP = 1;
+  PROTOCOL_UDP = 2;
+}
+
+// PortSpec is a guest port the customer wants reachable.
+message PortSpec {
+  uint32 guest_port = 1;
+  Protocol protocol = 2;
+}
+
+// PortMapping is where a guest port is reachable from outside the node.
+message PortMapping {
+  uint32 guest_port = 1;
+  Protocol protocol = 2;
+  string host_address = 3;
+  uint32 host_port = 4;
+}
+
+// Phase is the agent's observed phase of an instance on the host.
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PHASE_PROVISIONING = 1;
+  PHASE_RUNNING = 2;
+  PHASE_FAILED = 3;
+  PHASE_DELETING = 4;
+  // The instance and its disks are gone; confirms a termination.
+  PHASE_DELETED = 5;
+}
+
+// InstanceStatus reports one instance as the agent observes it.
+// Last-writer-wins by (applied_generation, at).
+message InstanceStatus {
+  string id = 1;
+  Phase phase = 2;
+  string reason = 3;
+  repeated string guest_ips = 4;
+  repeated PortMapping port_mappings = 5;
+  // Generation of the snapshot this status was produced under.
+  uint64 applied_generation = 6;
+  google.protobuf.Timestamp at = 7;
+}
+
+// UsageBatch carries metering records from the agent's outbox.
+message UsageBatch {
+  repeated UsageRecord records = 1;
+}
+
+// UsageRecord is one minute-aligned metering period. Ingest is idempotent by
+// (instance_id, period_start).
+message UsageRecord {
+  string instance_id = 1;
+  google.protobuf.Timestamp period_start = 2;
+  google.protobuf.Timestamp period_end = 3;
+  uint32 running_seconds = 4;
+}
+
+// Ack is cumulative: every AgentMessage with seq <= Ack.seq is durable.
+message Ack {
+  uint64 seq = 1;
+}
+
+// DrainRequest tells the agent its node stopped accepting new placements.
+// Existing instances keep running; the snapshot stays authoritative.
+message DrainRequest {
+  bool draining = 1;
+  string reason = 2;
+}
+
+// UpgradeRequest asks the agent to install a signed release. Not acted on in
+// the demo (ADR-0024); defined so the protocol does not change later.
+message UpgradeRequest {
+  string version = 1;
+  string url = 2;
+  // "sha256:<hex>" of the binary.
+  string digest = 3;
+  bytes signature = 4;
+}

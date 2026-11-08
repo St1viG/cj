@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "kondukter/api/v1/types.proto";
+
+// CatalogService is what customers can buy (ADR-0007, ADR-0015).
+service CatalogService {
+  rpc ListOffers(ListOffersRequest) returns (ListOffersResponse);
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  rpc ListRegions(ListRegionsRequest) returns (ListRegionsResponse);
+}
+
+// Shape is a size: vCPU, RAM, disk and zero or more accelerators.
+message Shape {
+  string id = 1;
+  // e.g. "cpu-2x2", "gpu-gtx1060-1x".
+  string name = 2;
+  uint32 vcpu = 3;
+  uint64 ram_mib = 4;
+  uint64 disk_gib = 5;
+  // Empty when accelerator_count is 0.
+  string accelerator_kind = 6;
+  string accelerator_model = 7;
+  uint32 accelerator_count = 8;
+}
+
+// Offer is a shape for sale in a region and capacity class.
+message Offer {
+  string id = 1;
+  Shape shape = 2;
+  string region = 3;
+  CapacityClass capacity_class = 4;
+  Money price_per_hour = 5;
+  bool active = 6;
+  // Architectures for which a compatible image exists.
+  repeated string archs = 7;
+}
+
+// Image is a curated guest image (ADR-0015).
+message Image {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  // "amd64" | "arm64".
+  string arch = 4;
+  // e.g. "ubuntu 24.04".
+  string os = 5;
+  // Accelerator software stack baked in, e.g. "nvidia-580-cuda12"; empty for
+  // CPU images.
+  string accel_stack = 6;
+  // Accelerator models the stack supports; empty for CPU images.
+  repeated string compatible_accelerator_models = 7;
+  // "sha256:<hex>".
+  string digest = 8;
+  uint64 size_bytes = 9;
+  // "active" | "deprecated".
+  string status = 10;
+}
+
+// Region groups sites; "demo" in the showcase.
+message Region {
+  string name = 1;
+  string description = 2;
+}
+
+// ListOffersRequest filters are ANDed; empty fields match everything.
+message ListOffersRequest {
+  string region = 1;
+  // "nvidia", "mock", or "none" for CPU-only offers.
+  string accelerator_kind = 2;
+  string accelerator_model = 3;
+  // Offers with a compatible image for this architecture.
+  string arch = 4;
+  CapacityClass capacity_class = 5;
+  uint32 min_vcpu = 6;
+  uint64 min_ram_mib = 7;
+  // Include inactive offers.
+  bool include_inactive = 8;
+}
+
+message ListOffersResponse {
+  repeated Offer offers = 1;
+}
+
+// ListImagesRequest filters are ANDed; empty fields match everything.
+message ListImagesRequest {
+  string arch = 1;
+  // Only images that can run on this offer's shape.
+  string offer_id = 2;
+}
+
+message ListImagesResponse {
+  repeated Image images = 1;
+}
+
+message ListRegionsRequest {}
+
+message ListRegionsResponse {
+  repeated Region regions = 1;
+}

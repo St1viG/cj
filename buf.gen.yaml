@@ -1,0 +1,36 @@
+# Code generation for `make gen`. Plugins are pinned outside buf so output is
+# byte-identical everywhere: Go plugins as go.mod tool directives, protoc-gen-es
+# in the root package.json.
+version: v2
+clean: true
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/St1viG/cj/gen/go
+inputs:
+  - directory: proto
+plugins:
+  # Go message types for both packages.
+  - local: [go, tool, protoc-gen-go]
+    out: gen/go
+    opt: paths=source_relative
+  # grpc-go for the agent bidi stream only.
+  - local: [go, tool, protoc-gen-go-grpc]
+    out: gen/go
+    opt: paths=source_relative
+    types:
+      - kondukter.agent.v1.**
+  # connect-go handlers and clients for the public API only.
+  - local: [go, tool, protoc-gen-connect-go]
+    out: gen/go
+    opt: paths=source_relative
+    types:
+      - kondukter.api.v1.**
+  # TypeScript messages and service descriptors (protobuf-es v2, used by
+  # connect-es v2) for the web app.
+  - local: node_modules/.bin/protoc-gen-es
+    out: gen/ts
+    opt: target=ts
+    types:
+      - kondukter.api.v1.**

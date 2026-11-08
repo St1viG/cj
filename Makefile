@@ -8,6 +8,11 @@ BIN     := bin
 
 GO            ?= go
 GOLANGCI_LINT ?= golangci-lint
+BUF           ?= buf
+
+# Git ref the proto contract must stay compatible with (buf breaking, FILE).
+# CI overrides it, e.g. BUF_AGAINST_REF=origin/main.
+BUF_AGAINST_REF ?= main
 
 .DEFAULT_GOAL := help
 .PHONY: help tools gen build test lint fmt clean
@@ -21,8 +26,8 @@ tools: ## Install the toolchain: Brewfile, pinned Go codegen plugins, pinned pro
 	$(GO) build tool
 	pnpm install --frozen-lockfile
 
-gen: ## Generate code from proto/ and SQL (wired up in P0.3 and P3.1)
-	@echo "gen: nothing to generate yet"
+gen: ## Generate gen/go and gen/ts from proto/ (SQL codegen joins in P3.1)
+	$(BUF) generate
 
 build: ## Build kondukter, kondukter-agent and kctl into bin/
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -30,7 +35,14 @@ build: ## Build kondukter, kondukter-agent and kctl into bin/
 test: ## Run Go tests with the race detector
 	$(GO) test -race ./...
 
-lint: ## go vet, then golangci-lint (linters and format check)
+lint: ## buf lint + breaking check, go vet, golangci-lint (linters and format check)
+	$(BUF) lint
+	@if git rev-parse --verify -q '$(BUF_AGAINST_REF):buf.yaml' >/dev/null; then \
+		echo "$(BUF) breaking --against '.git#ref=$(BUF_AGAINST_REF)'"; \
+		$(BUF) breaking --against '.git#ref=$(BUF_AGAINST_REF)'; \
+	else \
+		echo "buf breaking: skipped, $(BUF_AGAINST_REF) has no buf.yaml yet"; \
+	fi
 	$(GO) vet ./...
 	$(GOLANGCI_LINT) run ./...
 

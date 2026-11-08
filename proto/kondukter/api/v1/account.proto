@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AccountService manages the caller's API keys and SSH keys.
+service AccountService {
+  // CreateAPIKey returns the secret exactly once; only a hash is stored.
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+  rpc AddSSHKey(AddSSHKeyRequest) returns (AddSSHKeyResponse);
+  rpc ListSSHKeys(ListSSHKeysRequest) returns (ListSSHKeysResponse);
+  rpc DeleteSSHKey(DeleteSSHKeyRequest) returns (DeleteSSHKeyResponse);
+}
+
+// APIKey is a bearer credential for kctl and the API ("kdk_…").
+message APIKey {
+  string id = 1;
+  string name = 2;
+  // First characters of the secret, enough to recognize it.
+  string prefix = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_used_at = 5;
+  google.protobuf.Timestamp revoked_at = 6;
+}
+
+// SSHKey is a public key the caller can attach to instances.
+message SSHKey {
+  string id = 1;
+  string name = 2;
+  // OpenSSH authorized_keys format.
+  string public_key = 3;
+  // "SHA256:…" as printed by ssh-keygen -l.
+  string fingerprint = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateAPIKeyRequest {
+  string name = 1;
+  string idempotency_key = 2;
+}
+
+message CreateAPIKeyResponse {
+  APIKey api_key = 1;
+  // The full secret. Shown once.
+  string secret = 2;
+}
+
+message ListAPIKeysRequest {}
+
+message ListAPIKeysResponse {
+  repeated APIKey api_keys = 1;
+}
+
+message RevokeAPIKeyRequest {
+  string id = 1;
+  string idempotency_key = 2;
+}
+
+message RevokeAPIKeyResponse {
+  APIKey api_key = 1;
+}
+
+message AddSSHKeyRequest {
+  string name = 1;
+  string public_key = 2;
+  string idempotency_key = 3;
+}
+
+message AddSSHKeyResponse {
+  SSHKey ssh_key = 1;
+}
+
+message ListSSHKeysRequest {}
+
+message ListSSHKeysResponse {
+  repeated SSHKey ssh_keys = 1;
+}
+
+message DeleteSSHKeyRequest {
+  string id = 1;
+  string idempotency_key = 2;
+}
+
+message DeleteSSHKeyResponse {}
