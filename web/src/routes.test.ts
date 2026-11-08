@@ -59,8 +59,9 @@ describe("the RPCs the pages rely on", () => {
     AdminService,
   } as const;
 
-  // Added to the proto in P5.5, only if polling proves too slow.
-  const notYet = new Set(["AdminService.WatchFleet"]);
+  // RPCs a page may list before the proto has them. None now: the stage page
+  // polls ListNodes and ListInstances, so WatchFleet was never added.
+  const notYet = new Set<string>();
 
   it("exist in the generated services", () => {
     for (const page of areas.flatMap((a) => a.pages)) {

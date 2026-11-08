@@ -35,7 +35,7 @@ Access rules, as built:
 | `/admin/instances` | operator | all instances: id, name, org, phase + reason, time in phase, node, offer and price, region, arch, created | Org, node and ended filters; Force terminate (confirm, optional reason) | `AdminService.ListInstances`, `AdminService.ForceTerminateInstance`, `AdminService.ListNodes` |
 | `/admin/catalog` | operator | offers, shapes, images and regions tables (read-only in the demo) | — | `AdminService.ListCatalog` |
 | `/admin/audit` | operator | audit log: time, actor, action, target, expandable payload | Filter by actor / action; older and newest pages | `AdminService.ListAuditLog` |
-| `/stage` | operator | fleet overview for the projector: nodes grouped by site with status and last seen; each node's non-terminal instances with phase and phase age; updates live | `?demo=1` shortens ids | `AdminService.WatchFleet` (added in P5.5 if polling is insufficient) or `AdminService.ListNodes` + `AdminService.ListInstances` on a 2 s interval |
+| `/stage` | operator | fleet overview for the projector: nodes grouped by site with status and last seen; each node's non-terminal instances with phase and phase age; updates live | `?demo=1` shortens ids | `AdminService.ListNodes` + `AdminService.ListInstances`, polled every 2 s (no `WatchFleet`: see "Stage page, as built") |
 
 ## Shared skeleton pieces (P5.1)
 
@@ -80,6 +80,17 @@ All four `/admin/*` routes render real pages; a customer or partner who opens on
 - **`/admin/instances`**: every org's instances, newest 200 (a note says when there are more). `?all=1` adds terminated, failed and lost ones; the org and node cells are buttons that set `?org=` and `?node=`, with "Any org" and "Any node" to clear them. Force terminate asks in place with an optional reason, stored as `force-terminated by <email>: <reason>` and in the audit log; it is disabled once the instance is ending or ended.
 - **`/admin/catalog`**: offers (with "for sale" and the architectures that have an image), shapes, images (with status, so deprecated ones show) and regions.
 - **`/admin/audit`**: 50 entries a page, newest first, with "Older entries" and "Newest entries" (`?page=` is the server's token). `?action=` is a select of the actions the server writes; the actor cell is a button that sets `?actor=`. Changing a filter goes back to the newest page. The target is shortened (`node/7f3c1a2b`), the payload is one line that opens to the whole JSON.
+
+## Stage page, as built (P5.5)
+
+`/stage` (operator, no area header) is the projector view for the failure drills. Plain nested lists: each site, under it each node with its status (and the reason, such as "unreachable (missed heartbeats)") and when it was last heard from, and under each node the instances that are not finished, each with its phase and how long it has been in it. The ages count up every second between polls.
+
+- **Polling, not a stream.** It polls `AdminService.ListNodes` and `ListInstances` every 2 s, and `AdminService.WatchFleet` was never added to the proto. A drill's changes last tens of seconds, so a poll shows each one within 2 s. Measured against a real `kondukter serve` with mock-driver agents, running failure drill 1 (SIGKILL the agent, then restart it): the node and its instance showed UNREACHABLE after 40 s, within the 45 s the drill expects, and were READY and RUNNING 2 s after the restart, with no reload. A tab that is hidden stops polling, so keep the projector tab in front.
+- **Contact lost.** If a poll fails (the control plane is restarting, drill 2), the last fleet stays on screen under "Lost contact with Kondukter … Showing what it said at 14:05:09, 12 s ago. Still trying." The banner clears on the next successful poll, with no reload and without signing the operator out.
+- **What is left out.** Retired nodes, and instances that ended, failed or were lost. An instance on no node yet (pending), or on a node the list does not show, appears under "Not on a listed node". If there are more than 200 unfinished instances, the newest 200 are shown, with a note.
+- **Reasons.** An instance's phase is followed by the control plane's reason when it is a problem or a wait ("pending (no_capacity)", "unreachable (node heartbeats lost)"). For `running` it is left out: the reason there is only ever the normal one, `agent_running`.
+- **`?demo=1`** shows an instance by its name, or by the first 8 characters of its id when it has none; without it, the name with the whole id. Nodes always show their hostname.
+- Order is stable (sites and hostnames by name, instances oldest first), so a poll that changes a status changes that line and moves nothing else.
 
 ## Explicitly not here
 
