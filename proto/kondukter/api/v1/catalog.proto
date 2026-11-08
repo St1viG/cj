@@ -16,7 +16,7 @@ message Shape {
   string id = 1;
   // e.g. "cpu-2x2", "gpu-gtx1060-1x".
   string name = 2;
-  uint32 vcpu = 3;
+  uint32 vcpu = 9;
   uint64 ram_mib = 4;
   uint64 disk_gib = 5;
   // Empty when accelerator_count is 0.

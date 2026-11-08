@@ -27,7 +27,7 @@ type Shape struct {
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// e.g. "cpu-2x2", "gpu-gtx1060-1x".
 	Name    string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Vcpu    uint32 `protobuf:"varint,3,opt,name=vcpu,proto3" json:"vcpu,omitempty"`
+	Vcpu    uint32 `protobuf:"varint,9,opt,name=vcpu,proto3" json:"vcpu,omitempty"`
 	RamMib  uint64 `protobuf:"varint,4,opt,name=ram_mib,json=ramMib,proto3" json:"ram_mib,omitempty"`
 	DiskGib uint64 `protobuf:"varint,5,opt,name=disk_gib,json=diskGib,proto3" json:"disk_gib,omitempty"`
 	// Empty when accelerator_count is 0.
@@ -729,7 +729,7 @@ const file_kondukter_api_v1_catalog_proto_rawDesc = "" +
 	"\x05Shape\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04vcpu\x18\x03 \x01(\rR\x04vcpu\x12\x17\n" +
+	"\x04vcpu\x18\t \x01(\rR\x04vcpu\x12\x17\n" +
 	"\aram_mib\x18\x04 \x01(\x04R\x06ramMib\x12\x19\n" +
 	"\bdisk_gib\x18\x05 \x01(\x04R\adiskGib\x12)\n" +
 	"\x10accelerator_kind\x18\x06 \x01(\tR\x0facceleratorKind\x12+\n" +
