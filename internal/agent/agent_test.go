@@ -337,3 +337,101 @@ func TestInventoryResentOnChange(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A libvirt node keeps its nftables table in step with its instances: the
+// DNAT rule for the SSH port appears once the guest is running and goes
+// when it is deleted. The mock driver stands in for libvirt.
+func TestFirewallFollowsInstances(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) {
+		if err := os.WriteFile(filepath.Join(dir, "default.yaml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("generation: 1\n")
+	srv := stubgw.New(dir, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tlsCfg, err := stubgw.SelfSignedTLS("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := srv.NewGRPCServer(tlsCfg)
+	go func() { _ = g.Serve(lis) }()
+	defer g.Stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Watch(ctx) }()
+
+	cfg, err := config.Load("config/testdata/mock.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DataDir, cfg.Gateway = t.TempDir(), lis.Addr().String()
+	cfg.Mock.ProvisionDelay, cfg.Mock.FailureRate = 100*time.Millisecond, 0
+	m, err := mock.New(cfg.Mock, mock.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Driver = "libvirt"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu      sync.Mutex
+		applied []string
+	)
+	last := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(applied) == 0 {
+			return ""
+		}
+		return applied[len(applied)-1]
+	}
+	log, _ := logging.New(io.Discard, "info")
+	a, err := agent.New(cfg, log, agent.Options{InsecureDev: true, Driver: m, ApplyNFT: func(_ context.Context, r string) error {
+		mu.Lock()
+		applied = append(applied, r)
+		mu.Unlock()
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+		_ = a.Close()
+	}()
+	waitUntil := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("not within 3s: %s\nlast table:\n%s", what, last())
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	const rule = `tcp dport 40000 dnat ip to 10.77.0.2:22 comment "i-1"`
+
+	waitUntil("an empty table applied at start", func() bool {
+		return strings.Contains(last(), "table inet kdk {") && !strings.Contains(last(), "dnat ip to")
+	})
+	time.Sleep(300 * time.Millisecond) // let the agent connect before editing
+	write("generation: 2\ninstances:\n  - {id: i-1, vcpu: 2, ram_mib: 2048, disk_gib: 20}\n")
+	waitUntil("the SSH DNAT rule for i-1", func() bool { return strings.Contains(last(), rule) })
+
+	write("generation: 3\n")
+	waitUntil("the rule removed with i-1", func() bool {
+		return last() != "" && !strings.Contains(last(), "dnat ip to")
+	})
+}

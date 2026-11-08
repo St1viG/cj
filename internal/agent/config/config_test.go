@@ -36,6 +36,10 @@ func TestDefaults(t *testing.T) {
 	if cfg.PortRange.First != 40000 || cfg.PortRange.Last != 49999 || cfg.LogLevel != "info" || cfg.DataDir == "" {
 		t.Fatalf("defaults = %+v", cfg)
 	}
+	subnet, gw, dns, err := cfg.Network.Parse()
+	if err != nil || cfg.Network.Bridge != "kdk-br0" || subnet.String() != "10.77.0.0/24" || gw.String() != "10.77.0.1" || dns != gw {
+		t.Fatalf("network = %+v → %v %v %v %v", cfg.Network, subnet, gw, dns, err)
+	}
 }
 
 func TestInvalid(t *testing.T) {
@@ -48,6 +52,10 @@ func TestInvalid(t *testing.T) {
 		"bad address":       {"driver: libvirt\nadvertise_address: tailnet", "advertise_address"},
 		"bad level":         {"driver: libvirt\nlog_level: loud", "log_level"},
 		"mock without arch": {"driver: mock\nmock: {vcpu: 1, ram_mib: 1, disk_gib: 1}", "arch"},
+		"bad subnet":        {"driver: libvirt\nnetwork: {subnet: 10.77.0.5/24}", "subnet"},
+		"ipv6 subnet":       {"driver: libvirt\nnetwork: {subnet: fd00::/64}", "subnet"},
+		"gateway outside":   {"driver: libvirt\nnetwork: {gateway: 10.1.0.1}", "outside"},
+		"no bridge":         {"driver: libvirt\nnetwork: {bridge: \"\"}", "bridge"},
 		"mock dup accel": {
 			"driver: mock\nmock: {arch: arm64, vcpu: 1, ram_mib: 1, disk_gib: 1, accelerators: [{id: a, model: m}, {id: a, model: m}]}",
 			"duplicate",

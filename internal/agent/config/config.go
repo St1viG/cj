@@ -43,8 +43,50 @@ type Config struct {
 	MaxInstances int `yaml:"max_instances"`
 	// LogLevel is "debug", "info", "warn" or "error".
 	LogLevel string `yaml:"log_level"`
+	// Network is the guest network on Linux nodes: libvirt's kdk-net, whose
+	// DNAT and isolation rules the agent owns (ADR-0016).
+	Network Network `yaml:"network"`
 	// Mock configures the mock driver.
 	Mock Mock `yaml:"mock"`
+}
+
+// Network is the libvirt guest network.
+type Network struct {
+	// Bridge is the host bridge of kdk-net.
+	Bridge string `yaml:"bridge"`
+	// Subnet is kdk-net's IPv4 subnet.
+	Subnet string `yaml:"subnet"`
+	// Gateway is the bridge's address; it defaults to the subnet's first
+	// address.
+	Gateway string `yaml:"gateway"`
+	// DNS is the resolver guests use; it defaults to the gateway.
+	DNS string `yaml:"dns"`
+}
+
+// Parse returns the network's subnet, gateway and DNS address.
+func (n Network) Parse() (subnet netip.Prefix, gateway, dns netip.Addr, err error) {
+	if n.Bridge == "" {
+		return subnet, gateway, dns, errors.New("bridge is required")
+	}
+	if subnet, err = netip.ParsePrefix(n.Subnet); err != nil || !subnet.Addr().Is4() || subnet.Masked() != subnet {
+		return subnet, gateway, dns, fmt.Errorf("subnet %q: want an IPv4 network such as 10.77.0.0/24", n.Subnet)
+	}
+	gateway = subnet.Addr().Next()
+	if n.Gateway != "" {
+		if gateway, err = netip.ParseAddr(n.Gateway); err != nil {
+			return subnet, gateway, dns, fmt.Errorf("gateway: %w", err)
+		}
+	}
+	if !subnet.Contains(gateway) {
+		return subnet, gateway, dns, fmt.Errorf("gateway %s is outside %s", gateway, subnet)
+	}
+	dns = gateway
+	if n.DNS != "" {
+		if dns, err = netip.ParseAddr(n.DNS); err != nil {
+			return subnet, gateway, dns, fmt.Errorf("dns: %w", err)
+		}
+	}
+	return subnet, gateway, dns, nil
 }
 
 // Reserved resources stay with the host.
@@ -106,6 +148,7 @@ func Default() Config {
 	return Config{
 		DataDir:   DefaultDataDir(),
 		PortRange: PortRange{First: 40000, Last: 49999},
+		Network:   Network{Bridge: "kdk-br0", Subnet: "10.77.0.0/24"},
 		LogLevel:  "info",
 	}
 }
@@ -168,6 +211,11 @@ func (c Config) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("log_level %q: want debug, info, warn or error", c.LogLevel)
+	}
+	if c.Driver == "libvirt" {
+		if _, _, _, err := c.Network.Parse(); err != nil {
+			return fmt.Errorf("network: %w", err)
+		}
 	}
 	if c.Driver == "mock" {
 		if err := c.Mock.validate(); err != nil {
