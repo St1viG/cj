@@ -1734,8 +1734,11 @@ func (x *UsageRecord) GetRunningSeconds() uint32 {
 	return 0
 }
 
-// Ack is cumulative: every AgentMessage with seq <= Ack.seq is durable. The
-// gateway sends it only after the enclosing database transaction commits.
+// Ack confirms one AgentMessage: the message with this seq is durable. The
+// gateway sends it only after the enclosing database transaction commits,
+// and again for a duplicate. Acks are per message, not cumulative, so a lost
+// or reordered message is never confirmed by a later one; the agent resends
+// whatever stays unacknowledged.
 type Ack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Seq           uint64                 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
