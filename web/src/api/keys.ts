@@ -24,6 +24,11 @@ export const keys = {
   usage: {
     list: (period: object = {}) => ["usage", "list", period] as const,
   },
+  /** The projector page's two polled lists (P5.5); it refreshes itself, so no one else invalidates these. */
+  stage: {
+    nodes: ["stage", "nodes"] as const,
+    instances: ["stage", "instances"] as const,
+  },
   /** Every view of nodes starts with this root, so a status change can refetch them all. */
   fleet: {
     all: ["fleet"] as const,
