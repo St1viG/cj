@@ -1,0 +1,19 @@
+# A static file server for the guest images, on loopback :8081 (roadmap P4.3's
+# "images" service). The agent downloads from it; the catalog's image URLs are
+# $KONDUKTER_IMAGE_BASE_URL/<file>.
+[Unit]
+Description=Kondukter demo image server
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/kondukter-demo/demo.env
+ExecStart=/usr/bin/python3 -m http.server 8081 --bind 127.0.0.1 --directory ${IMAGE_DIR}
+Restart=always
+RestartSec=2
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
