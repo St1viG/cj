@@ -31,7 +31,7 @@ type Runner func(ctx context.Context, name string, args ...string) ([]byte, erro
 
 // ExecRunner runs commands with os/exec.
 func ExecRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec // G204: argv, not a shell; the driver chooses name and args
 	if err != nil {
 		return out, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
@@ -51,22 +51,22 @@ type ImageCache struct {
 }
 
 // check validates the parts of ref that end up in a file name or a command.
-func check(ref driver.ImageRef) (format string, err error) {
-	format = ref.Format
+func check(ref driver.ImageRef) error {
+	format := ref.Format
 	if format == "" {
 		format = "qcow2"
 	}
 	switch {
 	case !nameRe.MatchString(ref.Name) || !nameRe.MatchString(ref.Version):
-		return "", fmt.Errorf("libvirt: image %q version %q: want letters, digits, dot, dash", ref.Name, ref.Version)
+		return fmt.Errorf("libvirt: image %q version %q: want letters, digits, dot, dash", ref.Name, ref.Version)
 	case format != "qcow2" && format != "raw":
-		return "", fmt.Errorf("%w: image format %q", driver.ErrUnsupported, format)
+		return fmt.Errorf("%w: image format %q", driver.ErrUnsupported, format)
 	case !digestRe.MatchString(ref.Digest):
-		return "", fmt.Errorf("libvirt: image %s: digest %q is not sha256:<hex>", ref.Name, ref.Digest)
+		return fmt.Errorf("libvirt: image %s: digest %q is not sha256:<hex>", ref.Name, ref.Digest)
 	case ref.URL == "":
-		return "", fmt.Errorf("libvirt: image %s has no URL", ref.Name)
+		return fmt.Errorf("libvirt: image %s has no URL", ref.Name)
 	}
-	return format, nil
+	return nil
 }
 
 // Path is where ref lives in the cache.
@@ -80,7 +80,7 @@ func (c *ImageCache) Path(ref driver.ImageRef) string {
 
 // Has reports whether ref is cached and was verified against its digest.
 func (c *ImageCache) Has(ref driver.ImageRef) bool {
-	if _, err := check(ref); err != nil {
+	if err := check(ref); err != nil {
 		return false
 	}
 	p := c.Path(ref)
@@ -94,7 +94,7 @@ func (c *ImageCache) Has(ref driver.ImageRef) bool {
 const metaSuffix = ".meta"
 
 func readMeta(path string) (driver.CachedImage, bool) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // G304: a .meta file listed from the cache directory
 	if err != nil {
 		return driver.CachedImage{}, false
 	}
@@ -107,7 +107,7 @@ func readMeta(path string) (driver.CachedImage, bool) {
 // way, and replaces the final name only if the digest matches. Concurrent
 // fetches of one image share a single download.
 func (c *ImageCache) Fetch(ctx context.Context, ref driver.ImageRef) (string, error) {
-	if _, err := check(ref); err != nil {
+	if err := check(ref); err != nil {
 		return "", err
 	}
 	if c.Has(ref) {
@@ -122,7 +122,7 @@ func (c *ImageCache) Fetch(ctx context.Context, ref driver.ImageRef) (string, er
 }
 
 func (c *ImageCache) download(ctx context.Context, ref driver.ImageRef, dst string) error {
-	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(c.Dir, 0o755); err != nil { //nolint:gosec // G301: QEMU runs as another user and must traverse the image cache
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ref.URL, nil)
@@ -163,7 +163,7 @@ func (c *ImageCache) download(ctx context.Context, ref driver.ImageRef, dst stri
 		return err
 	}
 	// QEMU runs as another user and reads the image as a backing file.
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // G302: QEMU reads the image as a backing file, as another user
 		return err
 	}
 	if err := os.Rename(tmp.Name(), dst); err != nil {
@@ -173,7 +173,7 @@ func (c *ImageCache) download(ctx context.Context, ref driver.ImageRef, dst stri
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst+metaSuffix, meta, 0o644)
+	return os.WriteFile(dst+metaSuffix, meta, 0o644) //nolint:gosec // G306: the sidecar holds only name, version and digest, and the inventory reads it
 }
 
 // List returns the cached images for the inventory.
@@ -205,5 +205,5 @@ func CreateOverlay(ctx context.Context, run Runner, backing, backingFormat, over
 		return err
 	}
 	// QEMU runs as another user.
-	return os.Chmod(overlay, 0o644)
+	return os.Chmod(overlay, 0o644) //nolint:gosec // G302: QEMU opens the overlay as another user
 }

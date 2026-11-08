@@ -126,7 +126,7 @@ func (f *fakeAPI) GuestIPs(_ context.Context, name string) ([]string, error) {
 	return f.ips[name], nil
 }
 
-func (f *fakeAPI) EnsureNetwork(_ context.Context, name, xml string) error {
+func (f *fakeAPI) EnsureNetwork(_ context.Context, name, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("network " + name)
@@ -154,14 +154,14 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	body := "pretend qcow2"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
 	t.Cleanup(srv.Close)
 	sum := sha256.Sum256([]byte(body))
 	h := &harness{t: t, api: newFake(), dir: dir, image: driver.ImageRef{
 		Name: "ubuntu", Version: "1", Format: "qcow2", Digest: "sha256:" + hex.EncodeToString(sum[:]), URL: srv.URL,
 	}}
 	h.inv = driver.Inventory{Arch: "amd64", Total: driver.Resources{VCPU: 12, RAMMiB: 16000, DiskGiB: 200}}
-	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+	run := func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		return nil, os.WriteFile(args[len(args)-2], []byte("overlay"), 0o600)
 	}
 	dr, err := New(Options{

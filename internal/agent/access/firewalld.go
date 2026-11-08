@@ -19,7 +19,7 @@ type Cmd func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 // ExecCmd runs commands with os/exec.
 func ExecCmd(ctx context.Context, name string, args ...string) ([]byte, error) {
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec // G204: argv, not a shell; the agent chooses name and args
 	if err != nil {
 		return out, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
