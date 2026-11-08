@@ -54,6 +54,14 @@ launchctl) instead of running them.
 | Status | `systemctl status kondukter-agent` | `sudo launchctl print system/io.kondukter.agent` |
 | Stop | `systemctl stop kondukter-agent` | `sudo launchctl bootout system/io.kondukter.agent` |
 
+On Fedora with SELinux enforcing, the script also installs
+`fedora/kondukter-agent.cil` (`semodule -i`, remove with `semodule -r
+kondukter-agent`). libvirt's confined daemons read `/proc/<pid>` of each client,
+and without the module `virtnetworkd` refuses the agent's service domain with
+"Cannot find start time for pid". The data directory is mode 0711, not 0700:
+QEMU runs as another user and must reach the disks below it; the store inside
+is 0600.
+
 Stopping or killing the agent leaves its VMs running. When the agent comes
 back, it reconciles them and backfills the minutes it missed.
 
