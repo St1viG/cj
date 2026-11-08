@@ -2,12 +2,13 @@
 
 The Vite + React + TypeScript single-page app ([ADR-0022](../docs/adr/0022-react-vite-typescript-connect-es.md)). The `kondukter` binary embeds its build and serves it at `/`.
 
-The roadmap builds the **skeleton** and each page's **contents**, not the design (P5, "Owner constraint"). Markup is plain, and the only stylesheet is `src/reset.css`. Every route, its role, its data, its actions and its RPCs are in [docs/WEB_PAGES.md](../docs/WEB_PAGES.md); `src/routes.ts` is the same table as code, and a test keeps the two equal.
+The product brand is **Warden**; Kondukter is the backend component and keeps its name in code. The pages carry the owner's design system ([`design.html.html`](design.html.html)): `src/theme.css` (tokens, components, dark and light) on top of `src/reset.css`, with the fonts in `src/fonts/`. See "Design system and stage view, as built" in [docs/WEB_PAGES.md](../docs/WEB_PAGES.md). Every route, its role, its data, its actions and its RPCs are in [docs/WEB_PAGES.md](../docs/WEB_PAGES.md); `src/routes.ts` is the same table as code, and a test keeps the two equal.
 
 ```sh
 make web        # from the repo root: install, typecheck, test, build into web/dist
 make build      # embeds web/dist into bin/kondukter
 make web-dev    # Vite on :5173, proxying /api to `kondukter serve` on :8080 (KONDUKTER_API_URL)
+VITE_MOCK_API=1 pnpm --dir web dev   # no backend: every page on sample data (logins in docs/WEB_PAGES.md)
 ```
 
 `web/dist` is build output. Git tracks only `web/dist/.gitkeep`, so Go builds work without Node; a binary built that way answers `503` with a note to run `make web`.
@@ -19,7 +20,7 @@ make web-dev    # Vite on :5173, proxying /api to `kondukter serve` on :8080 (KO
 | `src/api/` | The transport (`/api`, cookies), one typed client per service (`useApi()`), query keys, the query client (a 401 from any call signs the user out) |
 | `src/auth/` | `useMe()` / `useCurrentUser()`, `RoleRoute` guards, role → home and landing rules |
 | `src/hooks/` | `useWatchInstance(id)`: `WatchInstance` as a hook, reconnecting, feeding the query cache |
-| `src/components/` | Plain `DataTable`, `Form`, `Field`, `Confirm`, and the loading / empty / error states |
+| `src/components/` | `DataTable`, `Form`, `Field`, `Confirm`, the loading / empty / error states, and the design's `StatusChip`, `Pipeline`, `Terminal`, `Stat`, `ResourceBar`, `FleetMap` |
 | `src/pages/` | `/login`, the area frame (nav + logout), and the placeholder every page starts as |
 | `src/routes.ts` | The route map; the router, the navigation and the placeholders read it |
 | `embed.go` | `go:embed` of `dist` and the SPA handler used by `kondukter` |

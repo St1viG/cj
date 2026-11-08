@@ -7,9 +7,12 @@ import { useApi } from "../../api/ApiProvider";
 import { keys } from "../../api/keys";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Field } from "../../components/Field";
+import { ResourceBar } from "../../components/ResourceBar";
+import { nodeKind, StatusChip } from "../../components/Status";
 import { Form } from "../../components/Form";
 import { formatGiB, formatMiB, formatMinutes, formatTimestamp, nodeStatusLabel, shortId } from "../../lib/format";
 import { SiteFilter, useSiteParam } from "./sites";
+import { PageTitle } from "../../components/PageTitle";
 
 /** A `YYYY-MM-DD` from a date input, as local midnight; `undefined` when empty. */
 function localDay(value: string): Date | undefined {
@@ -27,13 +30,13 @@ const pick = (r: ResourceAmounts | undefined, k: "vcpu" | "ramMib" | "diskGib") 
 
 const columns: Column<NodeUtilization>[] = [
   { header: "Hostname", cell: (u) => <span title={u.nodeId}>{u.hostname || shortId(u.nodeId)}</span> },
-  { header: "Status", cell: (u) => nodeStatusLabel(u.status) },
-  { header: "vCPU allocated", cell: (u) => share(pick(u.allocated, "vcpu"), pick(u.allocatable, "vcpu")) },
-  { header: "RAM allocated", cell: (u) => share(pick(u.allocated, "ramMib"), pick(u.allocatable, "ramMib"), formatMiB) },
-  { header: "Disk allocated", cell: (u) => share(pick(u.allocated, "diskGib"), pick(u.allocatable, "diskGib"), formatGiB) },
+  { header: "Status", cell: (u) => <StatusChip kind={nodeKind(u.status)}>{nodeStatusLabel(u.status)}</StatusChip> },
+  { header: "vCPU allocated", cell: (u) => <ResourceBar text={share(pick(u.allocated, "vcpu"), pick(u.allocatable, "vcpu"))} used={pick(u.allocated, "vcpu")} total={pick(u.allocatable, "vcpu")} /> },
+  { header: "RAM allocated", cell: (u) => <ResourceBar text={share(pick(u.allocated, "ramMib"), pick(u.allocatable, "ramMib"), formatMiB)} used={pick(u.allocated, "ramMib")} total={pick(u.allocatable, "ramMib")} /> },
+  { header: "Disk allocated", cell: (u) => <ResourceBar text={share(pick(u.allocated, "diskGib"), pick(u.allocatable, "diskGib"), formatGiB)} used={pick(u.allocated, "diskGib")} total={pick(u.allocatable, "diskGib")} /> },
   {
     header: "Accelerators allocated",
-    cell: (u) => (u.acceleratorsTotal ? share(u.acceleratorsAllocated, u.acceleratorsTotal) : "none"),
+    cell: (u) => (u.acceleratorsTotal ? <ResourceBar text={share(u.acceleratorsAllocated, u.acceleratorsTotal)} used={u.acceleratorsAllocated} total={u.acceleratorsTotal} /> : "none"),
   },
   { header: "Active instances", cell: (u) => u.activeInstanceCount },
   { header: "Instance minutes", cell: (u) => formatMinutes(u.instanceMinutes) },
@@ -67,9 +70,9 @@ export function UtilizationPage() {
 
   return (
     <section>
-      <h1>Utilization</h1>
+      <PageTitle>Utilization</PageTitle>
       <SiteFilter />
-      <Form submitLabel="Show period" onSubmit={(d) => setPeriod({ from: String(d.get("from") ?? ""), to: String(d.get("to") ?? "") })}>
+      <Form inline submitLabel="Show period" onSubmit={(d) => setPeriod({ from: String(d.get("from") ?? ""), to: String(d.get("to") ?? "") })}>
         <Field label="From" name="from" type="date" defaultValue={period.from} hint="Empty: 24 hours before the end." />
         <Field label="To (included)" name="to" type="date" defaultValue={period.to} hint="Empty: now." />
       </Form>

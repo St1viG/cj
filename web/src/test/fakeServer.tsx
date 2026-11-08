@@ -16,7 +16,7 @@ export const accounts = {
 } as const;
 
 export type AccountName = keyof typeof accounts;
-export const PASSWORD = "correct horse";
+export const PASSWORD = "cj";
 
 export function principalOf(name: AccountName): Principal {
   const a = accounts[name];

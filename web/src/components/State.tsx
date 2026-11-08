@@ -3,20 +3,33 @@ import { errorMessage } from "../api/errors";
 
 /**
  * The three states every page must have besides its data (WEB_PAGES.md):
- * loading, empty and error. Plain markup; the owner's design replaces it.
+ * loading, empty and error.
  */
 
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
-  return <p role="status">{label}</p>;
+  return (
+    <div className="skel" aria-busy="true">
+      <span role="status" className="rsn">
+        {label}
+      </span>
+      <span className="sk" style={{ width: "70%" }} />
+      <span className="sk" style={{ width: "92%" }} />
+      <span className="sk" style={{ width: "54%" }} />
+    </div>
+  );
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p>{children}</p>;
+  return (
+    <div className="empty">
+      <p>{children}</p>
+    </div>
+  );
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   return (
-    <div role="alert">
+    <div role="alert" className="errp">
       <p>{errorMessage(error)}</p>
       {onRetry && (
         <button type="button" onClick={onRetry}>
