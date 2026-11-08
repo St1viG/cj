@@ -33,3 +33,6 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+
+# S1 spike binary
+/hack/s1/s1
