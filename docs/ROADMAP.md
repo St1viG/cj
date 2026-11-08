@@ -8,7 +8,7 @@
 
 ## Progress
 
-**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 12 partly done · 9 not started. Updated with every commit that finishes an item.
+**Done: 24 of 45 items** (about 19 of 35 estimated sessions) · 13 partly done · 8 not started. Updated with every commit that finishes an item.
 
 **P0 — Foundations**
 - [x] P0.1 — Planning outputs in place
@@ -51,7 +51,7 @@
 
 **P4 — Real fleet end-to-end (CLI)**
 - [ ] P4.1 — Fedora GPU node bootstrap · *partly done: `bootstrap.sh --check` is written and run read-only on FED-D; the install half waits for the P1.7 decisions and a root session on the host*
-- [ ] P4.2 — Mac node bootstrap
+- [ ] P4.2 — Mac node bootstrap · *partly done: `bootstrap.sh --check` is written and run on the development Mac; the install half and the `pmset` part wait for a root session*
 - [ ] P4.3 — Demo deployment of the control plane · *partly done: built and run on the development Mac; the checks from FED-D and on MAC-P wait for those hosts*
 - [ ] P4.4 — Enroll the fleet
 - [ ] P4.5 — Happy path on hardware · *partly done: `hack/demo-happy.sh` passes three runs in a row against mock agents on the development Mac; the runs on the real fleet wait for the hosts and the GPU image*
@@ -598,7 +598,15 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Decisions required:** ADR-0012, ADR-0013, ADR-0016
 - **Size:** M
 
-#### ☐ P4.2 — Mac node bootstrap
+#### ◐ P4.2 — Mac node bootstrap
+- **As built so far (2026-11-08):** `deploy/nodes/macos/bootstrap.sh --check`.
+  - **What it does:** it changes nothing and needs no root. It prints ok, warn, skip or FAIL for Apple Silicon and memory, Lima (installed, at least the S3 version 2.3.0, able to run), the agent (binary, the `_kondukter` user, the LaunchDaemon, the config's driver and gateway, the log's age), Tailscale and whether the gateway's name resolves, and AC power and sleep. Each FAIL carries a `fix:` line. It runs on the Mac, or from another machine with `ssh <mac> 'bash -s -- --check' < deploy/nodes/macos/bootstrap.sh`.
+  - **Run on the development Mac** (an 8 GB M1 on macOS 26.6.2, Lima 2.3.0, Tailscale running, on AC power, `SleepDisabled` set): 6 ok, 3 warn, 4 skip, 3 FAIL. The FAILs are that the agent, its service user and its LaunchDaemon are not installed. The warns are 8 GiB of RAM, 11 GB free against the 20 GB it wants, and no sleep assertion held.
+  - **Skipped, not guessed:** what needs root, which is the LaunchDaemon's state and the agent user's Lima instances and image cache.
+  - **Left:**
+    - the install half: `brew install lima`, the agent and the LaunchDaemon (`install-agent.sh` from P2.9 does the agent part), the config's `max_instances: 1` and the 4 GiB reserve on 8 GB hosts, and the image-cache warm-up with one `limactl create` and `delete`;
+    - `demo-sleep.sh` wrapping `pmset -a disablesleep`: P6.2's script holds an assertion instead and leaves `pmset` to the owner, because it is a root action;
+    - the acceptance run on MAC-A and MAC-B: agent running, enrolled, inventory showing arm64 and the expected RAM, and five minutes lid-closed.
 - **Goal:** A Mac becomes a node in five minutes.
 - **Deliverables:** `deploy/nodes/macos/bootstrap.sh`: `brew install lima` pinned to at least the S3 version; agent binary and LaunchDaemon (P2.9); config (driver `lima`, advertise address = tailnet IP, `max_instances: 1`, reserved 4 GiB on 8 GB hosts); warms the Lima image cache with one `limactl create` + `delete` of the demo image; `demo-sleep.sh on|off` wrapping `sudo pmset -a disablesleep 1|0`; checks `tailscale status` and that the gateway MagicDNS name resolves.
 - **Acceptance criteria:** On MAC-A and MAC-B: agent running, enrollment succeeds, inventory shows arm64, no accelerators and the expected allocatable RAM; with `demo-sleep.sh on` and the lid closed for five minutes the agent stays connected.
@@ -879,10 +887,10 @@ Not scheduled. Collected so nothing is forgotten.
 | P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+1 partly) |
 | P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
-| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+4 partly) |
+| P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+5 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 (+2 partly) |
-| **Total** | **45** | **25** | **20** | **35** | **24 (+12 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **24 (+13 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
