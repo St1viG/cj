@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "kondukter/api/v1/catalog.proto";
+import "kondukter/api/v1/instance.proto";
+import "kondukter/api/v1/types.proto";
+
+// AdminService is the operator's view across all partners and orgs. Every
+// mutation writes an audit_log row.
+//
+// ListNodes and ListInstances use the AdminService-prefixed message names
+// because PartnerService and InstanceService own the unprefixed ones.
+service AdminService {
+  rpc ListNodes(AdminServiceListNodesRequest) returns (AdminServiceListNodesResponse);
+  rpc ListInstances(AdminServiceListInstancesRequest) returns (AdminServiceListInstancesResponse);
+  // QuarantineNode stops placements and marks the node untrusted.
+  rpc QuarantineNode(QuarantineNodeRequest) returns (QuarantineNodeResponse);
+  // UnquarantineNode returns a node to READY (or UNREACHABLE if it is not
+  // connected); used to reset the demo.
+  rpc UnquarantineNode(UnquarantineNodeRequest) returns (UnquarantineNodeResponse);
+  rpc ForceTerminateInstance(ForceTerminateInstanceRequest) returns (ForceTerminateInstanceResponse);
+  rpc ListAuditLog(ListAuditLogRequest) returns (ListAuditLogResponse);
+  // ListCatalog returns the whole catalog, inactive entries included.
+  rpc ListCatalog(ListCatalogRequest) returns (ListCatalogResponse);
+}
+
+message AdminServiceListNodesRequest {
+  string site_id = 1;
+  // Empty matches every status.
+  repeated NodeStatus statuses = 2;
+}
+
+message AdminServiceListNodesResponse {
+  repeated Node nodes = 1;
+}
+
+message AdminServiceListInstancesRequest {
+  string org_id = 1;
+  string node_id = 2;
+  // Include TERMINATED, FAILED and LOST instances.
+  bool include_terminal = 3;
+  int32 page_size = 4;
+  string page_token = 5;
+}
+
+message AdminServiceListInstancesResponse {
+  // Newest first.
+  repeated Instance instances = 1;
+  string next_page_token = 2;
+}
+
+message QuarantineNodeRequest {
+  string node_id = 1;
+  string reason = 2;
+  string idempotency_key = 3;
+}
+
+message QuarantineNodeResponse {
+  Node node = 1;
+}
+
+message UnquarantineNodeRequest {
+  string node_id = 1;
+  string idempotency_key = 2;
+}
+
+message UnquarantineNodeResponse {
+  Node node = 1;
+}
+
+message ForceTerminateInstanceRequest {
+  string instance_id = 1;
+  string reason = 2;
+  string idempotency_key = 3;
+}
+
+message ForceTerminateInstanceResponse {
+  Instance instance = 1;
+}
+
+// AuditEntry is one append-only audit_log row.
+message AuditEntry {
+  string id = 1;
+  // "user" | "api_key" | "system".
+  string actor_type = 2;
+  string actor_id = 3;
+  // Email or key name, for display.
+  string actor_display = 4;
+  // RPC-style verb, e.g. "admin.quarantine_node".
+  string action = 5;
+  // "<type>/<id>", e.g. "node/7f3c…".
+  string target = 6;
+  google.protobuf.Struct payload = 7;
+  google.protobuf.Timestamp at = 8;
+}
+
+message ListAuditLogRequest {
+  string actor_id = 1;
+  string action = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListAuditLogResponse {
+  // Newest first.
+  repeated AuditEntry entries = 1;
+  string next_page_token = 2;
+}
+
+message ListCatalogRequest {}
+
+message ListCatalogResponse {
+  repeated Shape shapes = 1;
+  repeated Offer offers = 2;
+  repeated Image images = 3;
+  repeated Region regions = 4;
+}

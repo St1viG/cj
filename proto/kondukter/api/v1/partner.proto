@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "google/protobuf/timestamp.proto";
+import "kondukter/api/v1/types.proto";
+
+// PartnerService is the partner's view of its own sites and nodes. It never
+// returns customer data. Operators may call it for any partner.
+service PartnerService {
+  rpc ListSites(ListSitesRequest) returns (ListSitesResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  // CreateEnrollmentToken returns a one-time token (1 h TTL) shown once.
+  rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (CreateEnrollmentTokenResponse);
+  // DrainNode stops new placements; running instances continue.
+  rpc DrainNode(DrainNodeRequest) returns (DrainNodeResponse);
+  // UndrainNode makes a DRAINING or MAINTENANCE node schedulable again.
+  rpc UndrainNode(UndrainNodeRequest) returns (UndrainNodeResponse);
+  rpc GetUtilization(GetUtilizationRequest) returns (GetUtilizationResponse);
+}
+
+// Site is a partner location; nodes belong to exactly one site.
+message Site {
+  string id = 1;
+  string partner_id = 2;
+  string name = 3;
+  string region = 4;
+  string country_code = 5;
+  // "port-map" in the demo (ADR-0016).
+  string network_mode = 6;
+  uint32 node_count = 7;
+  repeated NodeStatusCount nodes_by_status = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// NodeStatusCount is how many of a site's nodes are in one status.
+message NodeStatusCount {
+  NodeStatus status = 1;
+  uint32 count = 2;
+}
+
+message ListSitesRequest {}
+
+message ListSitesResponse {
+  repeated Site sites = 1;
+}
+
+message ListNodesRequest {
+  // Limit to one site.
+  string site_id = 1;
+}
+
+message ListNodesResponse {
+  repeated Node nodes = 1;
+}
+
+message CreateEnrollmentTokenRequest {
+  string site_id = 1;
+  string idempotency_key = 2;
+}
+
+message CreateEnrollmentTokenResponse {
+  string site_id = 1;
+  // The plaintext token. Shown once; only a hash is stored.
+  string token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  // Ready to paste on the node: "kondukter-agent enroll --server … --token …".
+  string enroll_command = 4;
+}
+
+message DrainNodeRequest {
+  string node_id = 1;
+  string reason = 2;
+  string idempotency_key = 3;
+}
+
+message DrainNodeResponse {
+  Node node = 1;
+}
+
+message UndrainNodeRequest {
+  string node_id = 1;
+  string idempotency_key = 2;
+}
+
+message UndrainNodeResponse {
+  Node node = 1;
+}
+
+message GetUtilizationRequest {
+  // Limit to one site.
+  string site_id = 1;
+  // Unset start means 24 h before end; unset end means now.
+  google.protobuf.Timestamp period_start = 2;
+  google.protobuf.Timestamp period_end = 3;
+}
+
+message GetUtilizationResponse {
+  google.protobuf.Timestamp period_start = 1;
+  google.protobuf.Timestamp period_end = 2;
+  repeated NodeUtilization nodes = 3;
+}
+
+// NodeUtilization is one node's allocation figures.
+message NodeUtilization {
+  string node_id = 1;
+  string hostname = 2;
+  NodeStatus status = 3;
+  // total - reserved.
+  ResourceAmounts allocatable = 4;
+  // Held by active allocations now.
+  ResourceAmounts allocated = 5;
+  uint32 accelerators_total = 6;
+  uint32 accelerators_allocated = 7;
+  uint32 active_instance_count = 8;
+  // Instance running time on this node within the period.
+  int64 instance_minutes = 9;
+}

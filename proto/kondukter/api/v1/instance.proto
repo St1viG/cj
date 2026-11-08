@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "google/protobuf/timestamp.proto";
+import "kondukter/api/v1/catalog.proto";
+import "kondukter/api/v1/types.proto";
+
+// InstanceService is the customer's VM lifecycle (SPEC §6.3).
+service InstanceService {
+  rpc CreateInstance(CreateInstanceRequest) returns (CreateInstanceResponse);
+  rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse);
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  rpc TerminateInstance(TerminateInstanceRequest) returns (TerminateInstanceResponse);
+  // WatchInstance sends the current instance at once, then again on every
+  // change, until the instance is terminal or the client cancels.
+  rpc WatchInstance(WatchInstanceRequest) returns (stream WatchInstanceResponse);
+}
+
+// Instance is one customer VM.
+message Instance {
+  string id = 1;
+  string org_id = 2;
+  string org_name = 3;
+  // Optional display name chosen at create time.
+  string name = 4;
+  string offer_id = 5;
+  // The offer's shape at create time.
+  Shape shape = 6;
+  Money price_per_hour = 7;
+  string region = 8;
+  string image_id = 9;
+  // "<name> <version>".
+  string image_name = 10;
+  // "amd64" | "arm64".
+  string arch = 11;
+  // Set once scheduled.
+  string node_id = 12;
+  InstancePhase phase = 13;
+  // Why the instance is in this phase, e.g. "no_capacity".
+  string phase_reason = 14;
+  google.protobuf.Timestamp phase_changed_at = 15;
+  // Set once RUNNING.
+  Connection connection = 16;
+  repeated PortSpec ports = 17;
+  repeated string ssh_key_fingerprints = 18;
+  Usage usage = 19;
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp running_at = 21;
+  google.protobuf.Timestamp terminated_at = 22;
+}
+
+// Connection is how the customer reaches the VM (ADR-0016, port-map).
+message Connection {
+  string host = 1;
+  uint32 ssh_port = 2;
+  string ssh_user = 3;
+  // Ready to paste, e.g. "ssh -p 40001 ubuntu@100.64.0.5".
+  string ssh_command = 4;
+  // Every mapped guest port, 22 included.
+  repeated PortMapping port_mappings = 5;
+}
+
+// InstanceEvent is one phase transition.
+message InstanceEvent {
+  InstancePhase from_phase = 1;
+  InstancePhase to_phase = 2;
+  string reason = 3;
+  google.protobuf.Timestamp at = 4;
+}
+
+message CreateInstanceRequest {
+  string offer_id = 1;
+  // Must match the offer's accelerators and an architecture available for it.
+  string image_id = 2;
+  // SSH keys from the caller's account.
+  repeated string ssh_key_ids = 3;
+  // Additional OpenSSH public keys used for this instance only.
+  repeated string ssh_public_keys = 4;
+  // Guest ports to expose in addition to 22.
+  repeated PortSpec ports = 5;
+  // Optional cloud-init user-data, at most 16 KiB.
+  string user_data = 6;
+  string name = 7;
+  string idempotency_key = 8;
+}
+
+message CreateInstanceResponse {
+  Instance instance = 1;
+}
+
+message GetInstanceRequest {
+  string id = 1;
+}
+
+message GetInstanceResponse {
+  Instance instance = 1;
+  // Oldest first.
+  repeated InstanceEvent events = 2;
+}
+
+message ListInstancesRequest {
+  // Include TERMINATED, FAILED and LOST instances.
+  bool include_terminal = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListInstancesResponse {
+  // Newest first.
+  repeated Instance instances = 1;
+  string next_page_token = 2;
+}
+
+message TerminateInstanceRequest {
+  string id = 1;
+  string idempotency_key = 2;
+}
+
+message TerminateInstanceResponse {
+  Instance instance = 1;
+}
+
+message WatchInstanceRequest {
+  string id = 1;
+}
+
+message WatchInstanceResponse {
+  Instance instance = 1;
+}

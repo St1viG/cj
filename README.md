@@ -14,7 +14,7 @@ Control plane and node agent that turn idle partner datacenter capacity (GPUs in
 
 ## Where to start
 
-Roadmap item **P0.3 — Protobuf contract v1 and codegen**. P0.1 (these documents) and P0.2 (toolchain and repo skeleton) are done.
+Roadmap item **P0.4 — Compose stack and CI**. P0.1 (these documents), P0.2 (toolchain and repo skeleton) and P0.3 (protobuf contract and codegen) are done.
 
 ## Development
 
@@ -22,8 +22,9 @@ On macOS with Homebrew:
 
 ```sh
 make tools       # Brewfile formulae, pinned Go codegen plugins, pinned protoc-gen-es
+make gen         # gen/go and gen/ts from proto/ (buf)
 make build       # bin/kondukter, bin/kondukter-agent, bin/kctl
-make test lint   # go test -race, go vet, golangci-lint
+make test lint   # go test -race; buf lint + breaking, go vet, golangci-lint
 make             # list all targets
 ```
 

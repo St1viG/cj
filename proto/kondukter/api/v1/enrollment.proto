@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// EnrollmentService turns a one-time token into a node identity (SPEC §7.7,
+// ADR-0024). It is served on the API port without a session; the token is
+// the credential.
+service EnrollmentService {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+message EnrollRequest {
+  // From PartnerService.CreateEnrollmentToken.
+  string token = 1;
+  // PEM-encoded PKCS#10 certificate signing request for the agent's key.
+  bytes csr_pem = 2;
+  string hostname = 3;
+  string agent_version = 4;
+  string idempotency_key = 5;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  // PEM-encoded node certificate followed by any intermediates. The SAN URI
+  // is "kondukter://node/<node_id>".
+  bytes certificate_chain_pem = 2;
+  // PEM-encoded CA certificate that signs the gateway's server certificate
+  // and every node certificate.
+  bytes ca_certificate_pem = 3;
+  // host:port of the mTLS agent gateway.
+  string gateway_address = 4;
+  google.protobuf.Timestamp certificate_expires_at = 5;
+}

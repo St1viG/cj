@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package kondukter.api.v1;
+
+import "google/protobuf/timestamp.proto";
+import "kondukter/api/v1/types.proto";
+
+// UsageService shows running time and estimated cost per instance
+// (ADR-0023). No money moves in the demo.
+service UsageService {
+  rpc ListUsage(ListUsageRequest) returns (ListUsageResponse);
+}
+
+message ListUsageRequest {
+  // Limit to one instance.
+  string instance_id = 1;
+  // Running time is clipped to [period_start, period_end). Unset start means
+  // the beginning of time; unset end means now.
+  google.protobuf.Timestamp period_start = 2;
+  google.protobuf.Timestamp period_end = 3;
+}
+
+message ListUsageResponse {
+  repeated InstanceUsage instances = 1;
+  // Sums per currency.
+  repeated Money total_estimated_cost = 2;
+  int64 total_running_minutes = 3;
+}
+
+// InstanceUsage is one instance's usage within the requested period.
+message InstanceUsage {
+  string instance_id = 1;
+  string instance_name = 2;
+  string offer_id = 3;
+  string shape_name = 4;
+  InstancePhase phase = 5;
+  Money price_per_hour = 6;
+  Usage usage = 7;
+  // Sum of agent-reported running seconds, for the cross-check.
+  int64 agent_reported_seconds = 8;
+}
