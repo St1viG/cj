@@ -177,6 +177,55 @@ func (q *Queries) ListInstanceEvents(ctx context.Context, instanceID uuid.UUID) 
 	return items, nil
 }
 
+const listNodeInstancesInPhaseForUpdate = `-- name: ListNodeInstancesInPhaseForUpdate :many
+SELECT id, org_id, offer_id, image_id, node_id, name, desired, phase, phase_reason, phase_changed_at, placement_generation, spec, connection, created_by, created_at, scheduled_at, running_at, terminated_at, agent_status_at FROM instances WHERE node_id = $1 AND phase = $2 ORDER BY id FOR UPDATE
+`
+
+type ListNodeInstancesInPhaseForUpdateParams struct {
+	NodeID *uuid.UUID
+	Phase  InstancePhase
+}
+
+func (q *Queries) ListNodeInstancesInPhaseForUpdate(ctx context.Context, arg ListNodeInstancesInPhaseForUpdateParams) ([]Instance, error) {
+	rows, err := q.db.Query(ctx, listNodeInstancesInPhaseForUpdate, arg.NodeID, arg.Phase)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instance{}
+	for rows.Next() {
+		var i Instance
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.OfferID,
+			&i.ImageID,
+			&i.NodeID,
+			&i.Name,
+			&i.Desired,
+			&i.Phase,
+			&i.PhaseReason,
+			&i.PhaseChangedAt,
+			&i.PlacementGeneration,
+			&i.Spec,
+			&i.Connection,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ScheduledAt,
+			&i.RunningAt,
+			&i.TerminatedAt,
+			&i.AgentStatusAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSnapshotInstances = `-- name: ListSnapshotInstances :many
 SELECT
   i.id, i.spec,

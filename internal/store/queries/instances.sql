@@ -53,3 +53,6 @@ RETURNING *;
 
 -- name: SetInstanceUndesired :exec
 UPDATE instances SET desired = false WHERE id = $1;
+
+-- name: ListNodeInstancesInPhaseForUpdate :many
+SELECT * FROM instances WHERE node_id = @node_id AND phase = @phase ORDER BY id FOR UPDATE;

@@ -292,6 +292,56 @@ func (q *Queries) ListAcceleratorsByNode(ctx context.Context, nodeID uuid.UUID) 
 	return items, nil
 }
 
+const listEmptyDrainingNodesForUpdate = `-- name: ListEmptyDrainingNodesForUpdate :many
+SELECT n.id, n.site_id, n.hostname, n.arch, n.os, n.kernel, n.driver, n.agent_version, n.status, n.status_reason, n.capacity_class, n.cert_fingerprint, n.cert_expires_at, n.labels, n.advertise_address, n.cached_images, n.desired_generation, n.observed_generation, n.last_seen_at, n.created_at, n.updated_at FROM nodes n
+WHERE n.status = 'draining'
+  AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.node_id = n.id AND a.released_at IS NULL)
+ORDER BY n.id
+FOR UPDATE SKIP LOCKED
+`
+
+func (q *Queries) ListEmptyDrainingNodesForUpdate(ctx context.Context) ([]Node, error) {
+	rows, err := q.db.Query(ctx, listEmptyDrainingNodesForUpdate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Node{}
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.SiteID,
+			&i.Hostname,
+			&i.Arch,
+			&i.Os,
+			&i.Kernel,
+			&i.Driver,
+			&i.AgentVersion,
+			&i.Status,
+			&i.StatusReason,
+			&i.CapacityClass,
+			&i.CertFingerprint,
+			&i.CertExpiresAt,
+			&i.Labels,
+			&i.AdvertiseAddress,
+			&i.CachedImages,
+			&i.DesiredGeneration,
+			&i.ObservedGeneration,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNodes = `-- name: ListNodes :many
 SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes ORDER BY hostname, id
 `
@@ -344,6 +394,56 @@ SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, s
 
 func (q *Queries) ListNodesBySite(ctx context.Context, siteID uuid.UUID) ([]Node, error) {
 	rows, err := q.db.Query(ctx, listNodesBySite, siteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Node{}
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.SiteID,
+			&i.Hostname,
+			&i.Arch,
+			&i.Os,
+			&i.Kernel,
+			&i.Driver,
+			&i.AgentVersion,
+			&i.Status,
+			&i.StatusReason,
+			&i.CapacityClass,
+			&i.CertFingerprint,
+			&i.CertExpiresAt,
+			&i.Labels,
+			&i.AdvertiseAddress,
+			&i.CachedImages,
+			&i.DesiredGeneration,
+			&i.ObservedGeneration,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSilentReadyNodesForUpdate = `-- name: ListSilentReadyNodesForUpdate :many
+SELECT id, site_id, hostname, arch, os, kernel, driver, agent_version, status, status_reason, capacity_class, cert_fingerprint, cert_expires_at, labels, advertise_address, cached_images, desired_generation, observed_generation, last_seen_at, created_at, updated_at FROM nodes
+WHERE status = 'ready' AND coalesce(last_seen_at, created_at) < $1::timestamptz
+ORDER BY id
+FOR UPDATE SKIP LOCKED
+`
+
+// Heartbeat watchdog: READY nodes not heard from since the cutoff.
+func (q *Queries) ListSilentReadyNodesForUpdate(ctx context.Context, cutoff time.Time) ([]Node, error) {
+	rows, err := q.db.Query(ctx, listSilentReadyNodesForUpdate, cutoff)
 	if err != nil {
 		return nil, err
 	}

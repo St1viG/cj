@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/St1viG/cj/gen/go/kondukter/api/v1/apiv1connect"
+	"github.com/St1viG/cj/internal/controlplane/controller"
 	"github.com/St1viG/cj/internal/controlplane/enrollment"
 	"github.com/St1viG/cj/internal/controlplane/gateway"
 	"github.com/St1viG/cj/internal/controlplane/pki"
@@ -85,6 +86,7 @@ type Server struct {
 	CA         *pki.CA
 	Gateway    *gateway.Server
 	Enrollment *enrollment.Service
+	Nodes      *controller.NodeWatchdog
 	// Mux is the API router; services are mounted on it.
 	Mux *http.ServeMux
 }
@@ -109,6 +111,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	s := &Server{cfg: cfg, log: log, Store: st, CA: ca, Mux: http.NewServeMux()}
 	s.Gateway = gateway.New(st, log.With("module", "gateway"), gateway.Hooks{})
 	s.Enrollment = enrollment.New(st, ca, cfg.GatewayAdvertise, cfg.PublicURL)
+	s.Nodes = &controller.NodeWatchdog{Store: st, Log: log.With("module", "nodes")}
 
 	s.Mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -167,6 +170,7 @@ func (s *Server) Serve(ctx context.Context, apiLis, gwLis net.Listener, gwTLS *t
 		}
 		return nil
 	})
+	eg.Go(func() error { return s.Nodes.Run(ctx) })
 	eg.Go(func() error {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

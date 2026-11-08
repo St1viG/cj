@@ -1,0 +1,53 @@
+# Demo catalog (ROADMAP §1.3, draft until gate P1.7). `kondukter seed catalog`
+# upserts it; running it again changes nothing. ${VAR} is expanded from the
+# environment.
+regions:
+  - name: demo
+    description: Demo fleet on one Tailscale tailnet
+
+shapes:
+  - name: cpu-2x2
+    vcpu: 2
+    ram_mib: 2048
+    disk_gib: 20
+  - name: gpu-gtx1060-1x
+    vcpu: 4
+    ram_mib: 8192
+    disk_gib: 40
+    accelerator: {kind: nvidia, model: GeForce GTX 1060 6GB, count: 1}
+  # gpu-rtx-1x is added once spike S2b names FED-L's GPU (P1.3, P1.7).
+
+# Prices in EUR cents per hour, chosen to read well on screen (ADR-0023).
+offers:
+  - {shape: cpu-2x2, region: demo, capacity_class: dedicated, price_per_hour_minor: 5, currency: EUR}
+  - {shape: gpu-gtx1060-1x, region: demo, capacity_class: dedicated, price_per_hour_minor: 40, currency: EUR}
+
+images:
+  # Ubuntu 24.04 cloud images, release 20261017 (digests from the release's SHA256SUMS).
+  - name: ubuntu-cpu
+    version: 24.04-20261017
+    arch: amd64
+    os: ubuntu 24.04
+    url: https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img
+    digest: sha256:04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94
+    size_bytes: 621284352
+    format: qcow2
+  - name: ubuntu-cpu
+    version: 24.04-20261017
+    arch: arm64
+    os: ubuntu 24.04
+    url: https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-arm64.img
+    digest: sha256:50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e
+    size_bytes: 616522752
+    format: qcow2
+  # Built by deploy/images/ubuntu-gpu/build.sh (spike S5, P1.6) and served by
+  # the compose image server. Seeding skips it until the digest is filled in.
+  - name: ubuntu-gpu-pascal
+    version: 24.04-580-cuda12
+    arch: amd64
+    os: ubuntu 24.04
+    accel_stack: nvidia-580-cuda12
+    compatible_models: [GeForce GTX 1060 6GB, GeForce GTX 1060 3GB]
+    url: ${KONDUKTER_IMAGE_BASE_URL}/ubuntu-gpu-pascal-24.04-580-cuda12.qcow2
+    digest: ""
+    format: qcow2
