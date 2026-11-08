@@ -1,0 +1,29 @@
+# Build output
+/bin/
+/dist/
+
+# Go
+*.test
+*.out
+coverage.*
+# Spike code under hack/ carries its own go.mod; a local go.work would pull it into ./...
+/go.work
+/go.work.sum
+
+# JavaScript
+node_modules/
+/web/dist/
+
+# Guest images built locally (P1.6)
+/deploy/images/dist/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

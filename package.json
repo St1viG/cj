@@ -1,0 +1,8 @@
+{
+  "name": "kondukter",
+  "private": true,
+  "description": "Pinned JavaScript codegen tooling for buf. The web app lives in web/ (roadmap P5.1).",
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "2.16.0"
+  }
+}
