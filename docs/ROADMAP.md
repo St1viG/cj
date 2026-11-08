@@ -362,7 +362,7 @@ Time-boxed to one session each. Stop at the box and write `docs/spikes/S<n>-<nam
 - **Depends on:** P2.3, P1.7
 - **Decisions required:** ADR-0003, ADR-0019, ADR-0015
 - **Size:** M
-- **Two implementations, one kept (2026-11-08):** a second libvirt driver, built on a Mac before S1 and never run against a real libvirtd, had landed on `main` as `ec7c32a` while this FED-D driver was written. The owner chose the FED-D driver, so it replaced the Mac-built one when the branches were merged. The Mac-built code stays in git history at `ec7c32a` (its per-package notes are not repeated here).
+- **Two implementations, one kept (2026-11-08):** a second libvirt driver, built on a Mac before S1 and never run against a real libvirtd, had landed on `main` as `ec7c32a` while this FED-D driver was written. The owner chose the FED-D driver, so it replaced the Mac-built one when the branches were merged. The Mac-built code stays in git history at `ec7c32a` (its per-package notes are not repeated here). It dialed `/run/libvirt/libvirt-sock` (virtproxyd), which FED-D does not have: Fedora's modular daemons use `virtqemud` and `virtnetworkd`, two sockets.
 - **As built (2026-11-08):** `internal/agent/driver/libvirt`, on FED-D with the spike S1 and S2a setup. Two go-libvirt connections (the qemu and network daemons are separate on Fedora), reconnecting. An image that is not cached is fetched in the background, as in the Lima driver, and the driver fires an event when the create ends; a cached one is created inline. A failed create removes its files and domain. A stopped domain is started again with its disk. `Delete` leaves no domain, overlay or seed ISO; the NVRAM is removed by the undefine flag, and libvirt refuses that undefine if the NVRAM stays, which is the check, since `/var/lib/libvirt/qemu/nvram` is root-only. GPUs come from the inventory: the accelerator and its IOMMU-group companions become `<hostdev>` entries, and an unhealthy or unknown device is `ErrUnsupported`. Integration tests (`-tags libvirt`, see the file header): lifecycle with SSH into the guest, running after 12–16 s; GPU, where a flattened copy of the S2a guest (driver and CUDA installed) runs `nvidia-smi` on the GTX 1060; a hand-made `kdk-` domain without the marker is never listed or touched. Not part of the driver, still open: the `kdk-br0` firewalld zone and `kdk-egress` policy (P2.7), the SELinux access for `unconfined_service_t` (P2.9), and `data_dir` having mode `o+x` for QEMU, which the driver checks at start and the installer must set (P2.9).
 
 #### ◐ P2.6 — Lima driver
@@ -877,13 +877,13 @@ Not scheduled. Collected so nothing is forgotten.
 | Phase | Items | M | S | Sessions | Done |
 |---|---|---|---|---|---|
 | P0 Foundations | 4 | 1 | 3 | 2.5 | 4 |
-| P1 Spikes | 7 | 4 | 3 | 5.5 | 0 (+2 partly) |
-| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 4 (+5 partly) |
+| P1 Spikes | 7 | 4 | 3 | 5.5 | 3 (+2 partly) |
+| P2 Agent v0 | 9 | 6 | 3 | 7.5 | 7 (+2 partly) |
 | P3 Kondukter v0 | 11 | 8 | 3 | 9.5 | 11 |
 | P4 Real fleet (CLI) | 6 | 3 | 3 | 4.5 | 0 (+5 partly) |
 | P5 Web app skeleton | 5 | 2 | 3 | 3.5 | 5 |
 | P6 Showcase | 3 | 1 | 2 | 2 | 0 (+2 partly) |
-| **Total** | **45** | **25** | **20** | **35** | **24 (+14 partly)** |
+| **Total** | **45** | **25** | **20** | **35** | **30 (+11 partly)** |
 
 Critical path to a CLI-only demo (everything except P5): about 31 sessions.
 
