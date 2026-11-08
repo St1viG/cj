@@ -17,6 +17,7 @@ import (
 	"github.com/St1viG/cj/internal/agent/access"
 	"github.com/St1viG/cj/internal/agent/config"
 	"github.com/St1viG/cj/internal/agent/driver"
+	"github.com/St1viG/cj/internal/agent/driver/libvirt"
 	"github.com/St1viG/cj/internal/agent/driver/lima"
 	"github.com/St1viG/cj/internal/agent/driver/mock"
 	"github.com/St1viG/cj/internal/agent/metering"
@@ -104,7 +105,15 @@ func NewDriver(cfg config.Config, log *slog.Logger) (driver.Driver, error) {
 			MaxInstances: cfg.MaxInstances, Log: log.With("module", "lima"),
 		})
 	case "libvirt":
-		return nil, fmt.Errorf("driver %q is not built yet (roadmap P2.5)", cfg.Driver)
+		subnet, gateway, dns, err := cfg.Network.Parse()
+		if err != nil {
+			return nil, fmt.Errorf("network: %w", err)
+		}
+		return libvirt.New(libvirt.Options{
+			DataDir:      cfg.DataDir,
+			Network:      libvirt.Network{Bridge: cfg.Network.Bridge, Subnet: subnet, Gateway: gateway, DNS: dns},
+			MaxInstances: cfg.MaxInstances, Log: log.With("module", "libvirt"),
+		})
 	}
 	return nil, fmt.Errorf("unknown driver %q", cfg.Driver)
 }
